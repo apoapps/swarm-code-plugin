@@ -1,5 +1,5 @@
 ---
-description: Delegate a question or analysis to OpenCode (MiniMax M2.7) to save Claude tokens
+description: Delegate a question to OpenCode — auto-detects if multi-agent orchestration is needed
 argument-hint: '[--background|--wait] [--model <model>] <your question>'
 allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), AskUserQuestion
 ---
@@ -56,4 +56,18 @@ Model override:
 When NOT to delegate:
 - If the question is trivial (can be answered in <50 tokens), just answer directly.
 - If it requires writing/editing code, answer directly — OpenCode runs read-only.
-- If it requires deep multi-file reasoning that MiniMax can't handle well.
+
+## Auto-escalation to multi-agent orchestration
+
+Before delegating, assess task complexity. If the task is:
+- **Multi-faceted** (needs security + performance + architecture analysis)
+- **Large scope** (touches many files or systems)
+- **Critical** (important decisions needing cross-checking)
+
+Then use `/opencode:orchestrate` instead of `/opencode:ask`. This decomposes the task into sub-tasks, assigns named agents (Greek mythology names), and runs them in parallel.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" orchestrate "<enriched task>"
+```
+
+**Default behavior**: For complex tasks, PREFER orchestration. Multiple cheap agents > one expensive analysis.

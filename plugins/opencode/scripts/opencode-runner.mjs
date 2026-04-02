@@ -11,6 +11,7 @@
  *   node opencode-runner.mjs ask    [--model <model>] "<prompt>"
  *   node opencode-runner.mjs review [--base <ref>] [--scope auto|working-tree|branch] [--model <model>]
  *   node opencode-runner.mjs plan   [--model <model>] "<prompt>"
+ *   node opencode-runner.mjs orchestrate "<complex task>"
  *   node opencode-runner.mjs status [job-id] [--all] [--json]
  *   node opencode-runner.mjs result [job-id] [--json]
  */
@@ -27,6 +28,7 @@ import {
   groupModelsByProvider,
   resolveModel,
 } from "./lib/opencode.mjs";
+import { orchestrate } from "./lib/orchestrator.mjs";
 import {
   ensureStateDir,
   generateJobId,
@@ -697,30 +699,78 @@ async function handleModels(flags) {
   output(compact, true);
 }
 
+// ─── Orchestrate (multi-agent) ────────────────────────────────────────
+
+async function handleOrchestrate(flags, positional) {
+  const task = positional.join(" ") || flags.prompt;
+  if (!task) {
+    output("Error: No task provided. Usage: /opencode:orchestrate <complex task>\n");
+    process.exit(1);
+  }
+
+  const config = getConfig(CWD);
+  const jobId = generateJobId();
+
+  upsertJob(CWD, {
+    id: jobId,
+    kind: "orchestrate",
+    status: "running",
+    model: "multi-agent",
+    sessionId: process.env[SESSION_ID_ENV],
+    prompt: task.slice(0, 200),
+  });
+
+  const result = await orchestrate(task, CWD, {
+    config,
+    onProgress: (msg) => process.stderr.write(msg + "\n"),
+  });
+
+  upsertJob(CWD, {
+    id: jobId,
+    status: result.failed === result.agents.length ? "failed" : "done",
+    model: "multi-agent",
+    completedAt: new Date().toISOString(),
+    agents: result.agents.map((a) => ({
+      name: a.name,
+      trait: a.trait,
+      focus: a.focus,
+      model: a.model,
+      status: a.status,
+      complexity: a.complexity,
+    })),
+  });
+
+  if (result.output) writeJobFile(CWD, jobId, "output.txt", result.output);
+  output(result.output);
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
   const { command, flags, positional } = parseArgs(process.argv);
 
   switch (command) {
-    case "setup":    await handleSetup(flags); break;
-    case "ask":      await handleAsk(flags, positional); break;
-    case "review":   await handleReview(flags); break;
-    case "plan":     await handlePlan(flags, positional); break;
-    case "models":   await handleModels(flags); break;
-    case "status":   handleStatus(flags, positional); break;
-    case "result":   handleResult(flags, positional); break;
+    case "setup":       await handleSetup(flags); break;
+    case "ask":         await handleAsk(flags, positional); break;
+    case "review":      await handleReview(flags); break;
+    case "plan":        await handlePlan(flags, positional); break;
+    case "orchestrate": await handleOrchestrate(flags, positional); break;
+    case "models":      await handleModels(flags); break;
+    case "status":      handleStatus(flags, positional); break;
+    case "result":      handleResult(flags, positional); break;
     default:
       console.log([
         "OpenCode Companion — Made by Alejandro Apodaca Cordova (apoapps.com)",
         "",
         "Usage:",
-        "  opencode-runner.mjs setup  [--json]              — Detect models & configure",
-        '  opencode-runner.mjs ask    "<prompt>"             — Ask a question',
-        "  opencode-runner.mjs review [--base <ref>]         — Review git changes",
-        '  opencode-runner.mjs plan   "<prompt>"             — Implementation planning',
-        "  opencode-runner.mjs status [job-id] [--all]       — Check job status",
-        "  opencode-runner.mjs result [job-id]               — Get job result",
+        "  opencode-runner.mjs setup       [--json]            — Detect models & configure",
+        '  opencode-runner.mjs ask         "<prompt>"           — Ask a question',
+        "  opencode-runner.mjs review      [--base <ref>]       — Review git changes",
+        '  opencode-runner.mjs plan        "<prompt>"           — Implementation planning',
+        '  opencode-runner.mjs orchestrate "<complex task>"     — Multi-agent analysis',
+        "  opencode-runner.mjs models                           — List available models",
+        "  opencode-runner.mjs status      [job-id] [--all]     — Check job status",
+        "  opencode-runner.mjs result      [job-id]             — Get job result",
       ].join("\n"));
       process.exit(command ? 1 : 0);
   }
