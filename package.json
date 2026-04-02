@@ -1,0 +1,12 @@
+{
+  "name": "opencode",
+  "version": "1.0.0",
+  "description": "OpenCode plugin for Claude Code — delegate tasks to save tokens",
+  "type": "module",
+  "private": true,
+  "author": "Alejandro Apodaca Cordova (apoapps.com)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

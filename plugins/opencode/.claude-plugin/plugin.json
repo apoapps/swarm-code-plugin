@@ -1,0 +1,8 @@
+{
+  "name": "opencode",
+  "version": "1.0.0",
+  "description": "Delegate questions, code reviews, and planning to OpenCode to save Claude tokens.",
+  "author": {
+    "name": "Alejandro Apodaca Cordova (apoapps.com)"
+  }
+}

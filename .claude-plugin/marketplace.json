@@ -1,0 +1,21 @@
+{
+  "name": "opencode",
+  "owner": {
+    "name": "Alejandro Apodaca Cordova (apoapps.com)"
+  },
+  "metadata": {
+    "description": "Delegate tasks to OpenCode from Claude Code — ask, review, and plan to save tokens.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "opencode",
+      "description": "Delegate questions, code reviews, and planning to OpenCode to save Claude tokens.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Alejandro Apodaca Cordova (apoapps.com)"
+      },
+      "source": "./plugins/opencode"
+    }
+  ]
+}
