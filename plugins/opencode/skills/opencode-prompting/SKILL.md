@@ -85,6 +85,47 @@ Keep under 800 words.
 3. Why this works (one sentence)
 ```
 
+## Smart Model Routing — Claude picks the best model per task
+
+Claude has access to 50+ models through OpenCode. Before delegating, Claude should pick the right model for the task. Use `--model <id>` to override the default.
+
+To check available models cheaply (uses 5-min cache, minimal tokens):
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" models
+```
+
+### Routing guide by task type
+
+| Task | Best model tier | Why | Example models |
+|------|----------------|-----|----------------|
+| Quick question, explanation | Fast/cheap | Speed over depth | `minimax/MiniMax-M2.7-highspeed`, free variants |
+| Code review (small diff) | Fast/cheap | Structured output, speed | `minimax/MiniMax-M2.7`, `minimax/MiniMax-M2.5` |
+| Code review (large diff) | Medium | Needs more context window | `openai/gpt-5.2-codex`, `github-copilot/gpt-5.1-codex` |
+| Architecture planning | Medium-heavy | Needs reasoning depth | `openai/gpt-5-codex`, `github-copilot/gpt-5.4` |
+| Deep debugging | Heavy | Complex multi-step reasoning | `openai/gpt-5.1-codex-max`, `github-copilot/gpt-5.4` |
+| Security audit | Heavy | Must not miss vulnerabilities | `openai/gpt-5.1-codex`, `github-copilot/gpt-5.2-codex` |
+| Boilerplate/scaffolding | Fast/free | Simple pattern matching | `opencode/*-free` variants |
+
+### Decision flow for Claude
+
+1. Check task complexity: trivial / moderate / complex
+2. If trivial (<50 tokens to answer): don't delegate, answer directly
+3. If moderate: use configured default (no `--model` needed)
+4. If complex: add `--model openai/gpt-5.1-codex` or similar heavy model
+5. If FREE models suffice: use `opencode/*-free` variants to save even more
+
+### The output ALWAYS shows which model ran
+
+Every response from the plugin includes a header:
+```
+---
+**opencode** | ask | model: `minimax/MiniMax-M2.7` | attempts: 1/3 | OK
+---
+```
+Claude MUST read this header to know what model produced the output and adjust validation depth accordingly:
+- Free/fast model output → more scrutiny needed
+- Codex/heavy model output → lighter validation, higher trust
+
 ## What to delegate (good for OpenCode)
 
 - Fast code review with structured output
@@ -93,16 +134,17 @@ Keep under 800 words.
 - Finding common bugs and anti-patterns
 - Generating boilerplate and scaffolding
 
-## What NOT to delegate (keep in Claude or use Codex)
+## What NOT to delegate (keep in Claude directly)
 
 - Complex multi-file refactoring reasoning
 - Deep debugging with many interdependencies
 - Novel algorithm design
-- Nuanced architecture decisions with many tradeoffs
-- Tasks requiring repository-wide understanding
+- Tasks requiring writing/editing actual code
+- Anything under 50 tokens to answer
 
 ## Integration notes
 
 - When Claude proactively delegates, compose the prompt using these templates.
 - Claude should NOT forward the raw user message. Enrich it with context first.
 - After receiving the response, Claude validates per `opencode-result-handling` skill.
+- Claude should check the model header to calibrate how much validation is needed.

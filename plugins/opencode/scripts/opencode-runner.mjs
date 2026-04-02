@@ -93,6 +93,19 @@ async function resolveActiveModel(flags) {
   return { models: ["minimax/MiniMax-M2.7"], source: "default" };
 }
 
+/**
+ * Standard result header — ALWAYS included so Claude and user know what model ran.
+ */
+function formatResultHeader(kind, result) {
+  const fallbackNote = result.fallbackUsed ? ` (fallback — primary unavailable)` : "";
+  return [
+    `---`,
+    `**opencode** | ${kind} | model: \`${result.model}\`${fallbackNote} | attempts: ${result.attempts}/3 | ${result.success ? "OK" : "FAILED"}`,
+    `---`,
+    "",
+  ].join("\n");
+}
+
 // ─── Prompt templates ────────────────────────────────────────────────
 
 function loadPrompt(name) {
@@ -286,13 +299,11 @@ async function handleAsk(flags, positional) {
 
   if (result.output) writeJobFile(CWD, jobId, "output.txt", result.output);
 
+  const header = formatResultHeader("ask", result);
   if (result.success) {
-    if (result.fallbackUsed) {
-      process.stderr.write(`[Note] Used fallback model: ${result.model}\n`);
-    }
-    output(result.output);
+    output(header + result.output);
   } else {
-    output(`## OpenCode Ask — FAILED\n\n**Models tried**: ${models.join(", ")}\n**Attempts**: ${result.attempts}/3 per model\n**Error**: ${result.error ?? "timeout"}\n\n${result.output}\n`);
+    output(header + `**Models tried**: ${models.join(", ")}\n**Error**: ${result.error ?? "timeout"}\n\n${result.output}\n`);
     process.exit(1);
   }
 }
@@ -346,7 +357,8 @@ async function handleReview(flags) {
   });
 
   if (result.output) writeJobFile(CWD, jobId, "output.txt", result.output);
-  output(result.output || "No output from review.\n");
+  const header = formatResultHeader("review", result);
+  output(header + (result.output || "No output from review.\n"));
 }
 
 async function handlePlan(flags, positional) {
@@ -389,7 +401,8 @@ async function handlePlan(flags, positional) {
   });
 
   if (result.output) writeJobFile(CWD, jobId, "output.txt", result.output);
-  output(result.output || "No output from planning.\n");
+  const header = formatResultHeader("plan", result);
+  output(header + (result.output || "No output from planning.\n"));
 }
 
 function handleStatus(flags, positional) {
@@ -406,6 +419,48 @@ function handleResult(flags, positional) {
   output(flags.json ? report : report.text + "\n", !!flags.json);
 }
 
+/**
+ * Lightweight model listing — Claude calls this to see available models
+ * without the overhead of full setup. Outputs compact JSON for token efficiency.
+ */
+async function handleModels(flags) {
+  const config = getConfig(CWD);
+
+  // Use cached models if recent (< 5 min)
+  const cacheAge = config.availableModelsCheckedAt
+    ? Date.now() - Date.parse(config.availableModelsCheckedAt)
+    : Infinity;
+  const useCache = cacheAge < 5 * 60 * 1000 && config.availableModels?.length > 0;
+
+  const available = useCache
+    ? config.availableModels
+    : await detectAvailableModels();
+
+  if (!useCache && available.length > 0) {
+    setConfig(CWD, {
+      availableModels: available,
+      availableModelsCheckedAt: new Date().toISOString(),
+    });
+  }
+
+  const grouped = groupModelsByProvider(available);
+  const priority = config.modelPriority ?? [];
+  const resolved = resolveModel(priority, available);
+
+  const compact = {
+    active: resolved.model,
+    fallbackUsed: resolved.fallbackUsed,
+    priority,
+    providers: Object.fromEntries(
+      Object.entries(grouped).map(([p, models]) => [p, models.length])
+    ),
+    all: available,
+    cached: useCache,
+  };
+
+  output(compact, true);
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 async function main() {
@@ -416,6 +471,7 @@ async function main() {
     case "ask":      await handleAsk(flags, positional); break;
     case "review":   await handleReview(flags); break;
     case "plan":     await handlePlan(flags, positional); break;
+    case "models":   await handleModels(flags); break;
     case "status":   handleStatus(flags, positional); break;
     case "result":   handleResult(flags, positional); break;
     default:
