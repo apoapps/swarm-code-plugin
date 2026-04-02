@@ -1,60 +1,94 @@
 ---
 description: Detect available OpenCode models, configure priority list, and verify installation
-argument-hint: '[--json] [--set-primary <model>] [--add-fallback <model>] [--reset]'
+argument-hint: '[--set-primary <model>] [--add-fallback <model>] [--remove-fallback <model>] [--test] [--reset] [--json]'
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
 
-Interactive setup for the OpenCode plugin.
+Interactive setup wizard for the OpenCode plugin.
 
 Raw arguments: `$ARGUMENTS`
 
-## Step 1: Run detection
+## If the user passed flags (--set-primary, --add-fallback, --remove-fallback, --test, --reset)
 
+Run the command directly and show the output:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup $ARGUMENTS
+```
+Return the output verbatim — the script handles formatting.
+
+## If no flags (first-time setup or status check)
+
+### Step 1: Show the dashboard
+
+Run the formatted setup display:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup
+```
+Return this output verbatim to the user — it's a formatted CLI dashboard.
+
+### Step 2: Check if configuration is needed
+
+Also run JSON mode to get structured data:
 ```bash
 node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup --json
 ```
 
-## Step 2: Present results to user
+Check `modelPriority` in the JSON:
+- If empty → needs first-time configuration (go to Step 3)
+- If `activeModel` is null → primary is unavailable (go to Step 4)
+- If everything is good → setup complete, no further action needed
 
-Show:
-- OpenCode CLI status (installed/not)
-- Detected models grouped by provider
-- Current model priority list
-- Active model (which one would be used right now)
+### Step 3: First-time model selection wizard
 
-## Step 3: Interactive configuration
+If `modelPriority` is empty, guide the user through configuration:
 
-If the user hasn't configured models yet, or if `--reset` is passed:
+1. Use `AskUserQuestion` to pick a PRIMARY model. Present the top recommended models:
+   - `minimax/MiniMax-M2.7` — Fast, cheap, great default
+   - `minimax/MiniMax-M2.7-highspeed` — Ultra-fast variant
+   - `openai/gpt-5.1-codex` — Deep analysis, Codex-powered
+   - `github-copilot/gpt-5.4` — Heavy reasoning
+   - `opencode/minimax-m2.5-free` — Free tier
 
-1. Show all detected models grouped by provider (minimax, openai, github-copilot, etc.)
-2. Ask: "Which model do you want as your primary?" (use `AskUserQuestion` with the top 5 models as options)
-3. Ask: "Add fallback models? Pick 1-2 backups in case the primary is unavailable." (use `AskUserQuestion`)
-4. Save the priority list to config
-
-If the user passed `--set-primary <model>`:
-- Validate model is available
-- Move it to position 0 in the priority list
-- Save config
-
-If the user passed `--add-fallback <model>`:
-- Validate model is available
-- Add to the end of the priority list
-- Save config
-
-## Step 4: Verify
-
-Run a quick test with the primary model:
+2. Set the primary:
 ```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" ask "Reply with OK"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup --set-primary "<chosen model>"
 ```
 
-If it works, setup is complete. If not, suggest the next fallback.
+3. Use `AskUserQuestion` to ask about fallbacks:
+   - `Add a fallback model`
+   - `Skip — primary only is fine`
 
-## Model unavailability handling
+4. If they want a fallback, suggest complementary models:
+   - If primary is MiniMax → suggest Codex as fallback (different provider = better resilience)
+   - If primary is Codex → suggest MiniMax highspeed as fallback (faster)
+   - If primary is free tier → suggest MiniMax M2.7 as paid fallback
 
-If a previously configured model becomes unavailable:
-- Notify the user which model is missing.
-- Show which fallback is being used instead.
-- Ask if they want to reconfigure: "Your primary model X is unavailable. Using fallback Y. Reconfigure? [Yes / Keep fallback]"
+5. Set the fallback:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup --add-fallback "<chosen model>"
+```
+
+### Step 4: Model unavailability handling
+
+If `activeModel` is null or `fallbackUsed` is true:
+
+1. Tell the user which model is unavailable.
+2. If a fallback is active, show which one is being used.
+3. Use `AskUserQuestion`:
+   - `Reconfigure models` → go to Step 3
+   - `Keep using fallback` → done
+
+### Step 5: Test (optional)
+
+After any configuration change, offer to test:
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup --test
+```
+
+## Important
+
+- The script handles all CLI formatting (colors, boxes, icons). Return its stdout verbatim.
+- Do NOT reformat or summarize the script's output — it's designed for direct display.
+- Use `AskUserQuestion` for interactive choices, NOT text-based prompts.

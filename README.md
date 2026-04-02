@@ -7,6 +7,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![OpenCode Compatible](https://img.shields.io/badge/OpenCode-CLI-orange)](https://opencode.ai)
 
+> **This is NOT an official Anthropic or OpenCode product.** Community plugin made by [Alejandro Apodaca Cordova](https://apoapps.com). Not affiliated with, endorsed by, or sponsored by Anthropic or OpenCode in any way. Use at your own discretion.
+
 ---
 
 ## The Problem: You Can't Use Claude Inside OpenCode
@@ -331,9 +333,35 @@ Run `/opencode:setup` to reconfigure. The plugin will suggest available alternat
 
 ## How It Came To Be
 
-I wanted Claude and other AI models to collaborate — each one doing what it's best at. The obvious approach was to run Claude from inside OpenCode, but Anthropic blocks that. So I reversed the architecture: **Claude Code calls OpenCode**, not the other way around.
+I wanted Claude and other AI models to collaborate — each one doing what it's best at. The obvious approach was to run Claude from inside OpenCode, but Anthropic's terms of service block that. So I reversed the architecture: **Claude Code calls OpenCode**, not the other way around.
 
 The result is better than the original idea. Claude stays in charge — it decides what to delegate, composes smart prompts, and validates every response. The cheaper model does the heavy lifting. You save tokens. Everybody wins.
+
+### Inspired by the Codex Plugin
+
+This plugin is inspired by [OpenAI's Codex Plugin for Claude Code](https://github.com/openai/codex-plugin-cc) — reimagined for OpenCode with extra goodies:
+
+- **Interactive CLI setup wizard** with model detection, priority configuration, and health checks
+- **Generic multi-provider support** — 50+ models from MiniMax, OpenAI, GitHub Copilot, Gemini, and more (Codex plugin only supports Codex models)
+- **Smart model routing** — Claude dynamically picks the best model per task (fast/free for trivial, Codex for deep analysis)
+- **Automatic fallback chains** — if your primary model is down, seamlessly falls to the next one
+- **Prompt tuning** — built-in templates optimized per task type (review, plan, ask)
+- **Token-aware validation** — Claude calibrates validation depth based on which model produced the response
+- **Model header on every response** — always know which model answered and whether fallback was used
+
+Features I wanted in Codex but didn't have — so I built them here.
+
+---
+
+## Disclaimer
+
+**This is an unofficial, community-made plugin.** It is NOT affiliated with, endorsed by, or sponsored by Anthropic, OpenAI, OpenCode, or any other organization. It is an independent project by Alejandro Apodaca Cordova.
+
+- Anthropic, Claude, and Claude Code are trademarks of Anthropic.
+- OpenCode is a trademark of its respective owners.
+- Codex is a trademark of OpenAI.
+
+Use this plugin at your own risk and discretion.
 
 ---
 
@@ -345,4 +373,4 @@ MIT
 
 **Made by [Alejandro Apodaca Cordova](https://apoapps.com)**
 
-Built because Anthropic said I can't use Claude inside OpenCode. So I put OpenCode inside Claude. Problem solved.
+An unofficial, community plugin. Built because Anthropic said I can't use Claude inside OpenCode. So I put OpenCode inside Claude. Problem solved.

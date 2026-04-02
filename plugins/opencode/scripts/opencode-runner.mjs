@@ -160,99 +160,335 @@ function output(value, asJson = false) {
   }
 }
 
+// ─── CLI formatting ──────────────────────────────────────────────────
+
+const C = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+  white: "\x1b[37m",
+  bgGreen: "\x1b[42m",
+  bgRed: "\x1b[41m",
+  bgBlue: "\x1b[44m",
+};
+
+function ok(text)   { return `${C.green}✓${C.reset} ${text}`; }
+function fail(text)  { return `${C.red}✗${C.reset} ${text}`; }
+function warn(text)  { return `${C.yellow}!${C.reset} ${text}`; }
+function info(text)  { return `${C.blue}→${C.reset} ${text}`; }
+function dim(text)   { return `${C.dim}${text}${C.reset}`; }
+function bold(text)  { return `${C.bold}${text}${C.reset}`; }
+function tag(label, color) { return `${color}${C.bold} ${label} ${C.reset}`; }
+
+function box(lines, title = "") {
+  const maxLen = Math.max(...lines.map((l) => stripAnsi(l).length), stripAnsi(title).length + 4);
+  const pad = (s) => s + " ".repeat(Math.max(0, maxLen - stripAnsi(s).length));
+  const border = "─".repeat(maxLen + 2);
+  const out = [];
+  out.push(`┌${title ? `─ ${C.bold}${title}${C.reset} ` + "─".repeat(Math.max(0, maxLen - stripAnsi(title).length - 2)) : border}┐`);
+  for (const line of lines) {
+    out.push(`│ ${pad(line)} │`);
+  }
+  out.push(`└${border}┘`);
+  return out.join("\n");
+}
+
+function stripAnsi(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 // ─── Commands ────────────────────────────────────────────────────────
 
 async function handleSetup(flags) {
   const availability = await checkOpenCodeAvailable();
   const config = getConfig(CWD);
 
+  // ── Handle mutations first ──
+  if (flags["set-primary"]) {
+    return handleSetPrimary(flags["set-primary"], config);
+  }
+  if (flags["add-fallback"]) {
+    return handleAddFallback(flags["add-fallback"], config);
+  }
+  if (flags["remove-fallback"]) {
+    return handleRemoveFallback(flags["remove-fallback"], config);
+  }
+  if (flags.reset) {
+    setConfig(CWD, { modelPriority: [], availableModels: [], availableModelsCheckedAt: null });
+    output(ok("Configuration reset. Run /opencode:setup to reconfigure.\n"));
+    return;
+  }
+  if (flags.test) {
+    return handleTest(config);
+  }
+
+  // ── Not installed ──
   if (!availability.available) {
-    const report = {
-      opencode: "NOT FOUND",
-      models: [],
-      config,
-      action: "Install OpenCode CLI: https://opencode.ai/docs/install",
-    };
-    if (flags.json) { output(report, true); } else {
-      output([
-        "## OpenCode Setup",
-        "",
-        "**OpenCode CLI**: NOT FOUND",
-        "",
-        "Install: https://opencode.ai/docs/install",
-        "",
-        "Made by Alejandro Apodaca Cordova (apoapps.com)",
-      ].join("\n") + "\n");
+    if (flags.json) {
+      output({ opencode: "NOT FOUND", models: [], config }, true);
+      return;
     }
+    console.log("");
+    console.log(box([
+      fail(`OpenCode CLI ${bold("not found")}`),
+      "",
+      info("Install: https://opencode.ai/docs/install"),
+      "",
+      dim("After installing, run /opencode:setup again."),
+    ], "OpenCode Setup"));
+    console.log("");
     return;
   }
 
-  // Detect available models
-  process.stderr.write("Detecting available models...\n");
+  // ── Detect models ──
+  process.stderr.write(`${C.dim}Scanning models...${C.reset}\n`);
   const available = await detectAvailableModels();
 
-  // Update cached models
   setConfig(CWD, {
     availableModels: available,
     availableModelsCheckedAt: new Date().toISOString(),
   });
 
-  // Resolve which model would be used
   const resolved = resolveModel(config.modelPriority ?? [], available);
-
-  // Group detected models by provider
   const grouped = groupModelsByProvider(available);
+  const priority = config.modelPriority ?? [];
 
-  const report = {
-    opencode: `installed (${availability.version})`,
-    activeModel: resolved.model ?? "NONE — run /opencode:setup to configure",
-    fallbackUsed: resolved.fallbackUsed,
-    unavailable: resolved.unavailable,
-    modelPriority: config.modelPriority ?? [],
-    detectedModels: available,
-    modelsByProvider: grouped,
-    reviewOnStop: config.reviewOnStop,
-  };
-
+  // ── JSON mode ──
   if (flags.json) {
-    output(report, true);
+    output({
+      opencode: `installed (${availability.version})`,
+      activeModel: resolved.model ?? null,
+      fallbackUsed: resolved.fallbackUsed,
+      unavailable: resolved.unavailable,
+      modelPriority: priority,
+      detectedModels: available,
+      modelsByProvider: grouped,
+      totalModels: available.length,
+      totalProviders: Object.keys(grouped).length,
+      reviewOnStop: config.reviewOnStop ?? false,
+    }, true);
     return;
   }
 
-  const lines = [
-    "## OpenCode Setup",
-    "",
-    `**OpenCode CLI**: installed (${availability.version})`,
-    `**Active model**: ${resolved.model ?? "NONE"}${resolved.fallbackUsed ? ` (fallback — ${resolved.original} unavailable)` : ""}`,
-    `**Review on stop**: ${config.reviewOnStop ? "enabled" : "disabled"}`,
-    "",
-    "### Model Priority (first available is used)",
-    ...(config.modelPriority ?? []).length > 0
-      ? (config.modelPriority ?? []).map((m, i) => {
-          const avail = available.some((a) => a.toLowerCase() === m.toLowerCase());
-          return `  ${i + 1}. ${m} — ${avail ? "available" : "UNAVAILABLE"}`;
-        })
-      : ["  (none configured — run /opencode:setup to pick a model)"],
-    "",
-    "### Detected Models by Provider",
-    ...Object.entries(grouped).flatMap(([provider, models]) => [
-      `  **${provider}** (${models.length})`,
-      ...models.map((m) => {
-        const isPrimary = config.modelPriority?.[0] === m;
-        const inPriority = (config.modelPriority ?? []).includes(m);
-        return `    - ${m}${isPrimary ? " <- PRIMARY" : inPriority ? " <- fallback" : ""}`;
-      }),
-    ]),
-    "",
-    "### Configuration",
-    'To change model priority, tell Claude which model you prefer.',
-    "Claude will update the config via `/opencode:setup --set-primary <model>`.",
-    "",
-    "---",
-    "Made by Alejandro Apodaca Cordova (apoapps.com)",
-  ];
+  // ── Beautiful CLI output ──
+  console.log("");
 
-  output(lines.join("\n") + "\n");
+  // Header
+  console.log(box([
+    `${C.cyan}${C.bold}OpenCode Plugin for Claude Code${C.reset}`,
+    dim("Delegate tasks to save tokens"),
+    "",
+    `  CLI     ${availability.available ? ok(`v${availability.version}`) : fail("not found")}`,
+    `  Models  ${ok(`${bold(String(available.length))} detected across ${bold(String(Object.keys(grouped).length))} providers`)}`,
+  ], "opencode"));
+
+  console.log("");
+
+  // Active configuration
+  const activeStatus = resolved.model
+    ? ok(`${bold(resolved.model)}${resolved.fallbackUsed ? `  ${C.yellow}(fallback — ${resolved.original} unavailable)${C.reset}` : ""}`)
+    : warn("No model configured");
+
+  console.log(box([
+    `${C.bold}Active Model${C.reset}   ${activeStatus}`,
+    "",
+    `${C.bold}Priority List${C.reset}  ${priority.length > 0 ? "" : dim("(empty — needs configuration)")}`,
+    ...priority.map((m, i) => {
+      const avail = available.some((a) => a.toLowerCase() === m.toLowerCase());
+      const label = i === 0 ? tag("PRIMARY", C.bgGreen) : dim(`fallback ${i}`);
+      const status = avail ? `${C.green}●${C.reset}` : `${C.red}●${C.reset} unavailable`;
+      return `    ${label}  ${m}  ${status}`;
+    }),
+    ...(priority.length === 0 ? [
+      `    ${dim("Tell Claude which model you want, or pick from the list below.")}`,
+    ] : []),
+  ], "Configuration"));
+
+  console.log("");
+
+  // Models by provider
+  const providerIcons = {
+    "opencode": "◆",
+    "github-copilot": "◇",
+    "minimax": "▲",
+    "minimax-cn-coding-plan": "▲",
+    "minimax-coding-plan": "▲",
+    "openai": "○",
+  };
+
+  const providerLines = [];
+  for (const [provider, models] of Object.entries(grouped)) {
+    const icon = providerIcons[provider] ?? "●";
+    providerLines.push("");
+    providerLines.push(`  ${C.bold}${icon} ${provider}${C.reset} ${dim(`(${models.length})`)}`);
+
+    for (const m of models) {
+      const isPrimary = priority[0] === m;
+      const isFallback = priority.includes(m) && !isPrimary;
+      let badge = "";
+      if (isPrimary) badge = ` ${tag("PRIMARY", C.bgGreen)}`;
+      else if (isFallback) badge = ` ${C.dim}[fallback]${C.reset}`;
+
+      const shortName = m.split("/").pop();
+      const isFree = shortName.includes("free");
+      const isHighspeed = shortName.includes("highspeed");
+      let traits = [];
+      if (isFree) traits.push(`${C.green}free${C.reset}`);
+      if (isHighspeed) traits.push(`${C.cyan}fast${C.reset}`);
+      const traitStr = traits.length > 0 ? ` ${dim("·")} ${traits.join(" ")}` : "";
+
+      providerLines.push(`    ${dim("·")} ${m}${traitStr}${badge}`);
+    }
+  }
+
+  console.log(box(providerLines, `Models (${available.length})`));
+
+  console.log("");
+
+  // Quick actions
+  console.log(box([
+    `${C.bold}Quick Actions${C.reset}`,
+    "",
+    `  ${C.cyan}/opencode:setup --set-primary <model>${C.reset}`,
+    `    ${dim("Set your primary model")}`,
+    "",
+    `  ${C.cyan}/opencode:setup --add-fallback <model>${C.reset}`,
+    `    ${dim("Add a fallback model")}`,
+    "",
+    `  ${C.cyan}/opencode:setup --remove-fallback <model>${C.reset}`,
+    `    ${dim("Remove a fallback model")}`,
+    "",
+    `  ${C.cyan}/opencode:setup --test${C.reset}`,
+    `    ${dim("Test current configuration")}`,
+    "",
+    `  ${C.cyan}/opencode:setup --reset${C.reset}`,
+    `    ${dim("Reset all configuration")}`,
+    "",
+    dim("Or just tell Claude: \"use gpt-5.4 as my primary model\""),
+  ], "Actions"));
+
+  console.log("");
+  console.log(dim("  Made by Alejandro Apodaca Cordova · apoapps.com"));
+  console.log("");
+}
+
+async function handleSetPrimary(model, config) {
+  const available = config.availableModels ?? await detectAvailableModels();
+  const match = available.find((m) => m.toLowerCase() === model.toLowerCase());
+
+  if (!match) {
+    const suggestions = available
+      .filter((m) => m.toLowerCase().includes(model.toLowerCase().split("/").pop()))
+      .slice(0, 5);
+
+    console.log("");
+    console.log(fail(`Model "${model}" not found.`));
+    if (suggestions.length > 0) {
+      console.log(info("Did you mean:"));
+      for (const s of suggestions) console.log(`    · ${s}`);
+    }
+    console.log("");
+    process.exit(1);
+  }
+
+  const priority = config.modelPriority ?? [];
+  const newPriority = [match, ...priority.filter((m) => m !== match)];
+  setConfig(CWD, { modelPriority: newPriority });
+
+  console.log("");
+  console.log(ok(`Primary model set to ${bold(match)}`));
+  if (newPriority.length > 1) {
+    console.log(info(`Fallback order: ${newPriority.slice(1).join(" → ")}`));
+  }
+  console.log("");
+}
+
+async function handleAddFallback(model, config) {
+  const available = config.availableModels ?? await detectAvailableModels();
+  const match = available.find((m) => m.toLowerCase() === model.toLowerCase());
+
+  if (!match) {
+    console.log("");
+    console.log(fail(`Model "${model}" not found. Run /opencode:setup to see available models.`));
+    console.log("");
+    process.exit(1);
+  }
+
+  const priority = config.modelPriority ?? [];
+  if (priority.includes(match)) {
+    console.log(warn(`${match} is already in the priority list.`));
+    return;
+  }
+
+  priority.push(match);
+  setConfig(CWD, { modelPriority: priority });
+
+  console.log("");
+  console.log(ok(`Added ${bold(match)} as fallback #${priority.length - 1}`));
+  console.log(info(`Priority: ${priority.join(" → ")}`));
+  console.log("");
+}
+
+async function handleRemoveFallback(model, config) {
+  const priority = config.modelPriority ?? [];
+  const match = priority.find((m) => m.toLowerCase() === model.toLowerCase());
+
+  if (!match) {
+    console.log(fail(`${model} is not in the priority list.`));
+    return;
+  }
+
+  if (priority[0] === match) {
+    console.log(warn(`Can't remove the primary model. Use --set-primary to change it first.`));
+    return;
+  }
+
+  const newPriority = priority.filter((m) => m !== match);
+  setConfig(CWD, { modelPriority: newPriority });
+
+  console.log("");
+  console.log(ok(`Removed ${bold(match)} from fallbacks`));
+  console.log(info(`Priority: ${newPriority.join(" → ")}`));
+  console.log("");
+}
+
+async function handleTest(config) {
+  const priority = config.modelPriority ?? [];
+  if (priority.length === 0) {
+    console.log(fail("No models configured. Run /opencode:setup first."));
+    return;
+  }
+
+  console.log("");
+  console.log(bold("Testing model priority chain...\n"));
+
+  for (let i = 0; i < priority.length; i++) {
+    const model = priority[i];
+    const label = i === 0 ? "PRIMARY" : `FALLBACK ${i}`;
+    process.stdout.write(`  ${dim(label)}  ${model}  `);
+
+    const result = await executeWithRetry("Reply with OK", {
+      fallbackModels: [model],
+      timeout: 30_000,
+      cwd: CWD,
+      onAttempt: () => {},
+      onFallback: () => {},
+    });
+
+    if (result.success) {
+      console.log(ok("responding"));
+    } else {
+      console.log(fail("not responding"));
+    }
+  }
+
+  console.log("");
 }
 
 async function handleAsk(flags, positional) {
