@@ -24,7 +24,7 @@ import {
   checkOpenCodeAvailable,
   detectAvailableModels,
   executeWithRetry,
-  getKnownModels,
+  groupModelsByProvider,
   resolveModel,
 } from "./lib/opencode.mjs";
 import {
@@ -187,29 +187,17 @@ async function handleSetup(flags) {
   // Resolve which model would be used
   const resolved = resolveModel(config.modelPriority ?? [], available);
 
-  // Categorize known models
-  const known = getKnownModels();
-  const modelStatus = known.map((m) => {
-    const isAvailable = available.some((a) => a.toLowerCase().includes(m.id.split("/").pop().toLowerCase()));
-    const isPrimary = config.modelPriority?.[0] === m.id;
-    const isInPriority = (config.modelPriority ?? []).includes(m.id);
-    return {
-      id: m.id,
-      tier: m.tier,
-      speed: m.speed,
-      available: isAvailable,
-      primary: isPrimary,
-      inPriority: isInPriority,
-    };
-  });
+  // Group detected models by provider
+  const grouped = groupModelsByProvider(available);
 
   const report = {
     opencode: `installed (${availability.version})`,
     activeModel: resolved.model ?? "NONE — run /opencode:setup to configure",
     fallbackUsed: resolved.fallbackUsed,
+    unavailable: resolved.unavailable,
     modelPriority: config.modelPriority ?? [],
     detectedModels: available,
-    modelStatus,
+    modelsByProvider: grouped,
     reviewOnStop: config.reviewOnStop,
   };
 
@@ -226,22 +214,26 @@ async function handleSetup(flags) {
     `**Review on stop**: ${config.reviewOnStop ? "enabled" : "disabled"}`,
     "",
     "### Model Priority (first available is used)",
-    ...(config.modelPriority ?? []).map((m, i) => {
-      const avail = available.some((a) => a.toLowerCase().includes(m.split("/").pop().toLowerCase()));
-      return `  ${i + 1}. ${m} — ${avail ? "available" : "UNAVAILABLE"}`;
-    }),
+    ...(config.modelPriority ?? []).length > 0
+      ? (config.modelPriority ?? []).map((m, i) => {
+          const avail = available.some((a) => a.toLowerCase() === m.toLowerCase());
+          return `  ${i + 1}. ${m} — ${avail ? "available" : "UNAVAILABLE"}`;
+        })
+      : ["  (none configured — run /opencode:setup to pick a model)"],
     "",
-    "### All Detected Models",
-    ...available.map((m) => `  - ${m}`),
-    "",
-    "### Known Models Reference",
-    ...modelStatus.map((m) =>
-      `  - ${m.id} [${m.tier}/${m.speed}] ${m.available ? "available" : "not found"}${m.primary ? " <- PRIMARY" : ""}`
-    ),
+    "### Detected Models by Provider",
+    ...Object.entries(grouped).flatMap(([provider, models]) => [
+      `  **${provider}** (${models.length})`,
+      ...models.map((m) => {
+        const isPrimary = config.modelPriority?.[0] === m;
+        const inPriority = (config.modelPriority ?? []).includes(m);
+        return `    - ${m}${isPrimary ? " <- PRIMARY" : inPriority ? " <- fallback" : ""}`;
+      }),
+    ]),
     "",
     "### Configuration",
-    'To change model priority, Claude will update the config via `/opencode:setup`.',
-    "Tell Claude which model you prefer and it will configure the priority list.",
+    'To change model priority, tell Claude which model you prefer.',
+    "Claude will update the config via `/opencode:setup --set-primary <model>`.",
     "",
     "---",
     "Made by Alejandro Apodaca Cordova (apoapps.com)",
