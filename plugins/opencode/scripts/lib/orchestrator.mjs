@@ -22,33 +22,40 @@ const COMPLEXITY_MODELS = {
 };
 
 /**
- * Pick the best model for a given complexity tier.
+ * Spread models across parallel agents.
+ * - Respects the user's configured priority list — never grabs random free models.
+ * - Rotates through the priority list so parallel agents don't all hit the same model.
+ * - Heavy/critical agents get the strongest model from the priority list.
+ * @param {object[]} agents - Agent objects (with .complexity)
+ * @param {object} config
+ * @param {string[]} available
  */
-function modelForComplexity(tier, config, available) {
-  const priority = config.modelPriority ?? [];
+function spreadModels(agents, config, available) {
+  const priority = config.modelPriority ?? ["minimax/MiniMax-M2.7"];
+  const used = [];
 
-  if (tier === "light" || tier === "medium") {
-    // Use the configured default (fastest/cheapest)
-    return priority[0] ?? "minimax/MiniMax-M2.7";
+  for (let i = 0; i < agents.length; i++) {
+    const tier = agents[i].complexity ?? "medium";
+    let model;
+
+    if (tier === "heavy" || tier === "critical") {
+      // Prefer a strong/codex model from the priority list first
+      const codexInPriority = priority.find(
+        (m) => !used.includes(m) && m.includes("codex") && !m.includes("mini")
+      );
+      const codexFallback = (available ?? []).find(
+        (m) => m.includes("codex") && !m.includes("mini") && !m.includes("spark")
+      );
+      model = codexInPriority ?? codexFallback ?? priority[0] ?? "minimax/MiniMax-M2.7";
+    } else {
+      // Spread across priority list — pick first unused, else cycle
+      const unused = priority.find((m) => !used.includes(m));
+      model = unused ?? priority[i % priority.length] ?? priority[0] ?? "minimax/MiniMax-M2.7";
+    }
+
+    agents[i].model = model;
+    used.push(model);
   }
-
-  if (tier === "heavy") {
-    // Prefer a codex model if available
-    const codex = (available ?? []).find((m) =>
-      m.includes("codex") && !m.includes("mini") && !m.includes("spark")
-    );
-    return codex ?? priority[0] ?? "minimax/MiniMax-M2.7";
-  }
-
-  if (tier === "critical") {
-    // Use the strongest available
-    const strong = (available ?? []).find((m) =>
-      m.includes("codex-max") || m.includes("gpt-5.4") || m.includes("opus")
-    );
-    return strong ?? (available ?? []).find((m) => m.includes("codex")) ?? priority[0];
-  }
-
-  return priority[0] ?? "minimax/MiniMax-M2.7";
 }
 
 // ─── Task decomposition ──────────────────────────────────────────────
@@ -154,13 +161,11 @@ export async function orchestrate(task, cwd, options = {}) {
   // ── Phase 2: Assign agents ──
   const agents = pickAgents(agentCount);
   for (let i = 0; i < agents.length; i++) {
-    const sub = subtasks[i];
-    const model = modelForComplexity(sub.complexity, config, available);
-    agents[i].task = sub.task;
-    agents[i].focus = sub.focus;
-    agents[i].complexity = sub.complexity;
-    agents[i].model = model;
+    agents[i].task = subtasks[i].task;
+    agents[i].focus = subtasks[i].focus;
+    agents[i].complexity = subtasks[i].complexity;
   }
+  spreadModels(agents, config, available);
 
   onProgress(`│`);
   onProgress(`│ Agents assigned:`);

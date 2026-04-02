@@ -850,18 +850,21 @@ async function handleExecute(flags, positional) {
   const available = config.availableModels ?? [];
   let model;
 
+  const _priority = config.modelPriority ?? [];
   if (flags.model) {
     model = flags.model;
   } else if (classification.modelTier === "heavy" || classification.modelTier === "critical") {
-    // Try to find a codex/strong model
-    const codex = available.find((m) => m.includes("codex") && !m.includes("mini") && !m.includes("spark"));
-    model = codex ?? (config.modelPriority ?? [])[0] ?? "minimax/MiniMax-M2.7";
+    // Prefer a codex/strong model from the priority list, then from all available
+    const codexInPriority = _priority.find((m) => m.includes("codex") && !m.includes("mini"));
+    const codexInAvailable = available.find((m) => m.includes("codex") && !m.includes("mini") && !m.includes("spark"));
+    model = codexInPriority ?? codexInAvailable ?? _priority[0] ?? "minimax/MiniMax-M2.7";
   } else if (classification.modelTier === "light") {
-    // Use fastest available
-    const fast = available.find((m) => m.includes("highspeed")) ?? available.find((m) => m.includes("free"));
-    model = fast ?? (config.modelPriority ?? [])[0] ?? "minimax/MiniMax-M2.7";
+    // Use priority[0] — or its highspeed sibling if available, never grab a random free model
+    const base = (_priority[0] ?? "").replace(/-highspeed$/, "");
+    const highspeed = base ? available.find((m) => m === base + "-highspeed") : null;
+    model = highspeed ?? _priority[0] ?? "minimax/MiniMax-M2.7";
   } else {
-    model = (config.modelPriority ?? [])[0] ?? "minimax/MiniMax-M2.7";
+    model = _priority[0] ?? "minimax/MiniMax-M2.7";
   }
 
   // ── Execute single agent ──
