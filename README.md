@@ -181,22 +181,9 @@ plugins/opencode/
 
 ---
 
-## Why OpenCode Instead of Codex Plugin?
+## Why OpenCode?
 
-The Codex plugin only talks to Codex models. This plugin talks to **everything** — because OpenCode CLI is a universal model gateway. You get Codex, MiniMax, GPT, Gemini, and everything else through one interface.
-
-| | OpenCode Plugin | Codex Plugin |
-|---|---|---|
-| **Models** | ALL providers (MiniMax, Codex, GPT, Gemini, 50+) | Codex only |
-| **Auth** | Single OpenCode auth | Separate Codex CLI auth |
-| **Fallback** | Automatic multi-model fallback | Single model |
-| **Cost** | Choose cheapest model per task | Codex pricing only |
-| **Speed** | MiniMax highspeed < 5s | Codex ~15-30s |
-| **Codex access** | Yes, via `openai/gpt-5-codex` etc. | Native |
-| **Write access** | Read-only (safe by design) | Write-capable |
-| **Thread resume** | Not supported | Supported |
-
-**Recommendation:** Use this plugin as your primary delegation tool. It already includes Codex models (`openai/gpt-5-codex`, `openai/gpt-5.1-codex`, `github-copilot/gpt-5.1-codex`) — no separate Codex CLI needed. Fall back to the Codex plugin only when you specifically need write-capable runs or resumable threads.
+OpenCode CLI is a universal model gateway — 50+ models from MiniMax, OpenAI, GitHub Copilot, Gemini, and more, all through one interface and one auth flow.
 
 ---
 
@@ -218,18 +205,6 @@ If your primary model fails (timeout, rate limit, service down):
 
 ---
 
-## Integration with Codex Plugin
-
-Both plugins can coexist. Claude knows when to use which:
-
-| Task | Use OpenCode | Use Codex |
-|------|-------------|-----------|
-| Quick code review | Yes | - |
-| Deep investigation | - | Yes |
-| Implementation plan | Yes | - |
-| Fix bugs (write code) | - | Yes |
-| Architecture questions | Yes | - |
-| Resume previous thread | - | Yes |
 
 ---
 
@@ -337,19 +312,17 @@ I wanted Claude and other AI models to collaborate — each one doing what it's 
 
 The result is better than the original idea. Claude stays in charge — it decides what to delegate, composes smart prompts, and validates every response. The cheaper model does the heavy lifting. You save tokens. Everybody wins.
 
-### Inspired by the Codex Plugin
+Built with the help of [Claude Code](https://claude.ai/code), a lot of documentation reading, and [a bit of concentration](https://en.wikipedia.org/wiki/Methylphenidate).
 
-This plugin is inspired by [OpenAI's Codex Plugin for Claude Code](https://github.com/openai/codex-plugin-cc) — reimagined for OpenCode with extra goodies:
+### Where the Idea Came From
 
-- **Interactive CLI setup wizard** with model detection, priority configuration, and health checks
-- **Generic multi-provider support** — 50+ models from MiniMax, OpenAI, GitHub Copilot, Gemini, and more (Codex plugin only supports Codex models)
-- **Smart model routing** — Claude dynamically picks the best model per task (fast/free for trivial, Codex for deep analysis)
-- **Automatic fallback chains** — if your primary model is down, seamlessly falls to the next one
-- **Prompt tuning** — built-in templates optimized per task type (review, plan, ask)
-- **Token-aware validation** — Claude calibrates validation depth based on which model produced the response
-- **Model header on every response** — always know which model answered and whether fallback was used
+Seeing the [Codex Plugin for Claude Code](https://github.com/openai/codex-plugin-cc) sparked the idea. From there it grew into something with a lot more going for it:
 
-Features I wanted in Codex but didn't have — so I built them here.
+- **`/opencode:execute` — the one command you need.** Auto-classifies the task, picks the right model tier, and routes to single-agent or multi-agent mode automatically. You don't have to think about which subcommand to use.
+- **Colored terminal output** — agents show up with names, status, and progress in real time. You can see what's happening.
+- **Multi-agent orchestration that actually works.** Getting Claude to consistently do what you ask without pre-built scaffolding is a battle. This plugin gives it the structure it needs — named agents, typed tasks, model attribution — so it reliably follows through instead of going off-script.
+- **Claude stays in charge.** It decides what to delegate, enriches the prompts with project context, and validates every response. The cheaper model does the heavy lifting.
+- **50+ models through one interface** — switch between MiniMax, GPT, Gemini, Codex and more without changing your workflow.
 
 ---
 
