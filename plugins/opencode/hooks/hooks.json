@@ -1,27 +1,55 @@
 {
-  "description": "OpenCode plugin lifecycle hooks — session management and optional delegation hints.",
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-hook.mjs\" SessionStart",
-            "timeout": 5
-          }
-        ]
+  "version": "1.0",
+  "hooks": [
+    {
+      "id": "pre-execution",
+      "name": "Pre-Execution Auto-Routing",
+      "lifecycle": "SessionStart",
+      "file": "./pre-execution.mjs",
+      "enabled": false,
+      "description": "Analyzes Claude's message and auto-routes to OpenCode if delegation score >= threshold",
+      "config": {
+        "enableAutoRouting": false,
+        "delegationScoreThreshold": 70
       }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-hook.mjs\" SessionEnd",
-            "timeout": 5
-          }
-        ]
-      }
-    ]
+    },
+    {
+      "id": "implicit-command",
+      "name": "Implicit Command Detection",
+      "lifecycle": "SessionStart",
+      "file": "./implicit-command.mjs",
+      "enabled": false,
+      "description": "Converts natural language phrases to /opencode:command (e.g., 'Analiza esto' → /opencode:ask)",
+      "examples": [
+        "Revisa estos cambios → /opencode:review",
+        "Cómo implementar auth? → /opencode:ask",
+        "Plan para optimizar rendimiento → /opencode:plan"
+      ]
+    },
+    {
+      "id": "session-formatter",
+      "name": "Session Formatter",
+      "lifecycle": "ResponseComplete",
+      "file": "../scripts/session-hook.mjs",
+      "enabled": true,
+      "description": "Formats OpenCode response with colored headers, model info, and token counts"
+    }
+  ],
+  "ordering": [
+    "implicit-command",
+    "pre-execution",
+    "session-formatter"
+  ],
+  "config": {
+    "routing": {
+      "enableAutoRouting": false,
+      "delegationScoreThreshold": 70,
+      "budget": "medium"
+    },
+    "ui": {
+      "colors": true,
+      "emojis": true,
+      "verbosity": "normal"
+    }
   }
 }
