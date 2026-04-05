@@ -17,7 +17,7 @@
 
 ```
 WITHOUT swarm-code:           WITH swarm-code:
-                              
+
 User → Claude (does it all)   User → Claude (directs)
        ↑ expensive                    ↓
                               OpenCode worker (executes)
@@ -36,7 +36,7 @@ Claude Code (Sonnet/Opus) ← permanent team lead
   │
   ├── opencode-worker (analytical tasks)
   │     - code review
-  │     - implementation planning  
+  │     - implementation planning
   │     - debugging analysis
   │     - architecture questions
   │
@@ -65,12 +65,16 @@ Claude directs. OpenCode executes. Haiku edits. Each does what it's cheapest at.
 
 | Command | What it does |
 |---------|-------------|
-| `/swarm-code:ask` | Delegate a question to OpenCode |
-| `/swarm-code:review` | Code review of git changes (severity-ordered) |
-| `/swarm-code:plan` | Implementation plan (ArchitectTool-style) |
-| `/swarm-code:setup` | Detect models, configure priority list |
-| `/swarm-code:execute` | Auto-router — picks ask/review/plan automatically |
-| `/swarm-code:orchestrate` | Multi-agent decomposition for complex tasks |
+| `/swarm-code:init` | Initialize the swarm — detect models, create oc-team pane, activate keyword watcher |
+
+Claude delegates automatically once initialized — no other slash commands needed.
+
+| Internal call | Claude uses when... |
+|--------------|---------------------|
+| `execute "<task>"` | Analysis or questions |
+| `review` | Code review of git changes |
+| `plan "<task>"` | Implementation planning |
+| `orchestrate "<task>"` | Complex multi-faceted tasks |
 
 ---
 
@@ -84,26 +88,73 @@ Claude directs. OpenCode executes. Haiku edits. Each does what it's cheapest at.
 ### 2. Add the plugin to Claude Code
 ```bash
 claude plugin add /path/to/opencode-plugin-cc
+# or install from marketplace
 ```
 
-### 3. Configure models
+### 3. Initialize
 ```
-/swarm-code:setup
+/swarm-code:init
 ```
-Detects all available models on your system (50+). No hardcoded models — uses whatever you have.
 
-### 4. Use it
+Detects all available models on your system (50+), creates the `oc-team` split pane, activates the keyword watcher. That's it — Claude delegates automatically from here.
+
+---
+
+## The oc-team pane
+
+When you run `/swarm-code:init` inside a tmux session, swarm-code opens a horizontal split pane to the right of Claude Code:
+
 ```
-/swarm-code:ask How does the auth middleware work?
-/swarm-code:review
-/swarm-code:plan Add WebSocket notifications
+┌─────────────────────┬──────────────────────────────┐
+│                     │  swarm-code · oc-team monitor │
+│   Claude Code       │                               │
+│                     │  made by Alejandro Apodaca    │
+│                     │  apoapps.com                  │
+│                     │                               │
+│                     │  waiting for jobs...          │
+│                     │                               │
+│                     │  [job output streams here]    │
+└─────────────────────┴──────────────────────────────┘
+```
+
+- **On startup**: shows the ApoApps logo + "waiting for jobs..." — **no OpenCode TUI auto-launched**
+- **When a job runs**: bridge writes output to a shared log that the pane tails in real time
+- **On keyword signal**: Claude writes `_Gi=<id>;OK` → keyword watcher detects it → OpenCode TUI opens in the pane
+
+### Keyword protocol
+
+The plugin uses a keyword-based signal system so Claude can trigger the OpenCode TUI without executing shell commands:
+
+```
+Claude writes: _Gi=31337;OK
+               │    │    └── acknowledgement
+               │    └─────── session/job ID
+               └──────────── _G prefix (swarm-code signal namespace)
+
+Watcher detects via tmux pipe-pane → respawns oc-team pane with opencode-splash.sh
+```
+
+---
+
+## How jobs flow
+
+```
+1. You ask Claude something
+2. Claude classifies the task (ask / review / plan / orchestrate)
+3. Claude calls opencode-bridge.sh with the prompt
+4. Bridge checks for oc-team pane:
+     - exists → writes "⚡ job <id> starting..." to shared log
+     - missing → creates pane with oc-team-ui.sh
+5. Bridge sends prompt to OpenCode via HTTP API (opencode serve)
+6. OpenCode processes and returns output
+7. Bridge writes result to shared log → appears in oc-team pane
+8. Bridge returns clean output to Claude
+9. Claude synthesizes and responds to you
 ```
 
 ---
 
 ## Spawning opencode-worker as a teammate
-
-The core of the swarm pattern. Use from Claude Code teams:
 
 ```python
 # Spawn a worker alongside your main agent
@@ -130,25 +181,36 @@ SendMessage(to: "oc-worker", message: "Review the auth module for security issue
 ## Under the hood
 
 ```
-opencode-bridge.sh          ← the core adapter
-  1. detect task type       (ask/review/plan from prompt content)
-  2. inject system prompt   (ArchitectTool for plan, severity format for review)
-  3. open tmux window       (user sees live progress)
-  4. run opencode-runner    (handles model selection + retry + fallback)
-  5. wait for completion
-  6. return clean output
+session-hook.mjs            ← fires on Claude Code startup
+  - detects tmux
+  - creates oc-team split pane with oc-team-ui.sh (NO opencode auto-launch)
+  - activates keyword watcher via tmux pipe-pane
 
-opencode-runner.mjs         ← CLI wrapper
+oc-team-ui.sh               ← the monitor pane
+  - shows ApoApps logo splash
+  - tails shared log ($CLAUDE_PLUGIN_DATA/swarm-code-logs/oc-team.log)
+  - stays alive, never auto-launches opencode
+
+oc-keyword-watcher.sh       ← reads Claude Code pane output via pipe-pane
+  - regex: _Gi=([^;]+);OK
+  - on match: respawns oc-team pane with opencode-splash.sh (TUI)
+
+opencode-bridge.sh          ← the core job adapter
+  - detects task type (ask/review/plan from prompt)
+  - injects system prompt
+  - finds oc-team pane → writes job status to shared log
+  - sends prompt to opencode via HTTP API
+  - streams result to shared log + notify file
+
+opencode-runner.mjs         ← CLI wrapper + init
   - reads modelPriority from config
-  - detects available models dynamically
-  - retry x3 with exponential backoff
-  - fallback to next model on failure
+  - detects available models dynamically (50+ across 6 providers)
+  - retry x3 with exponential backoff + model fallback
+  - init: creates oc-team pane + activates pipe-pane watcher
 
-opencode-worker agent       ← team member
-  - ACK immediately on task receipt
-  - run bridge
-  - SendMessage result to team lead
-  - loop: check TaskList for next task
+opencode-splash.sh          ← brand splash (on-demand only)
+  - shows ApoApps ASCII logo
+  - exec opencode [attach URL] — only runs when keyword triggers it
 ```
 
 ---
@@ -156,25 +218,28 @@ opencode-worker agent       ← team member
 ## Plugin structure
 
 ```
-plugins/opencode/
-├── .claude-plugin/plugin.json     # Plugin metadata (name: swarm-code)
-├── commands/                      # /swarm-code:* slash commands
+plugins/swarm-code/
+├── .claude-plugin/plugin.json     # Plugin metadata
+├── commands/
+│   └── init.md                    # /swarm-code:init
 ├── agents/opencode-worker.md      # Team member agent definition
 ├── skills/
 │   ├── opencode-runtime/          # Bridge invocation contract
-│   ├── opencode-prompting/        # Prompt composition (sourcemap-based)
+│   ├── opencode-prompting/        # Prompt composition
 │   ├── opencode-result-handling/  # How Claude validates responses
 │   └── opencode-orchestrate/      # Multi-team swarm pattern guide
 ├── scripts/
-│   ├── opencode-bridge.sh         # Core adapter (tmux + prompt injection)
-│   ├── opencode-runner.mjs        # CLI wrapper with retry + fallback
-│   ├── opencode-chat.sh           # Persistent multi-turn chat sessions
-│   └── lib/                       # State, job control, orchestrator
+│   ├── opencode-bridge.sh         # Core job adapter
+│   ├── opencode-runner.mjs        # CLI wrapper + init logic
+│   ├── session-hook.mjs           # Startup hook (oc-team pane, no auto-opencode)
+│   ├── oc-team-ui.sh              # Monitor pane (logo + log tail)
+│   ├── oc-keyword-watcher.sh      # Keyword signal detector (_Gi=<id>;OK)
+│   ├── opencode-splash.sh         # Brand splash + opencode TUI (on-demand)
+│   ├── opencode-send.mjs          # HTTP API sender
+│   └── lib/                       # State, job control
 └── hooks/
-    ├── hooks.json                 # All hooks enabled
-    ├── task-type.mjs              # Auto-classifies ask/review/plan
-    ├── pre-execution.mjs          # Auto-delegation scoring
-    └── implicit-command.mjs       # NLP command detection
+    ├── hooks.json                 # SessionStart + PreToolUse hooks
+    └── pre-tool-use.mjs           # Delegation guardrails
 ```
 
 ---
@@ -182,10 +247,10 @@ plugins/opencode/
 ## Requirements
 
 - Node.js ≥ 18
-- OpenCode CLI installed
+- OpenCode CLI installed (`opencode serve` must work)
 - Claude Code with plugin support
+- tmux (required for oc-team pane and keyword watcher)
 - Git (for review commands)
-- tmux (optional, for live progress windows)
 
 ---
 
@@ -217,5 +282,5 @@ Unofficial community plugin. Not affiliated with Anthropic, OpenCode, or OpenAI.
 
 ---
 
-**Made by [Alejandro Apodaca Cordova](https://apoapps.com)**  
+**Made by [Alejandro Apodaca Cordova](https://apoapps.com)**
 *Claude Code leads. OpenCode executes. The swarm works.*
