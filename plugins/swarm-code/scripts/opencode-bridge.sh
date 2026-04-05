@@ -93,20 +93,33 @@ OC_SID="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readF
 
 open_attach_pane() {
   local url="$1"
-  # Only open if inside a tmux session and no attach pane already open
-  if [[ -n "${TMUX:-}" ]] && "$TMUX_BIN" info &>/dev/null 2>&1; then
+
+  # ── Case 1: Inside a tmux session ($TMUX is set) ──
+  if [[ -n "${TMUX:-}" ]]; then
     local already
-    already="$("$TMUX_BIN" list-panes -a -F '#{pane_current_command}' 2>/dev/null | grep -c "opencode" || true)"
+    already="$("$TMUX_BIN" list-panes -F '#{pane_current_command}' 2>/dev/null | grep -c "opencode" || true)"
     if [[ "$already" -eq 0 ]]; then
-      "$TMUX_BIN" split-window -v -l 40% "opencode attach '$url'" 2>/dev/null || true
+      # Try split-window first; if it fails (e.g., pane too small), try new-window
+      if ! "$TMUX_BIN" split-window -v -l 35% "opencode attach '$url'" 2>/dev/null; then
+        "$TMUX_BIN" new-window -n "oc-tui" "opencode attach '$url'" 2>/dev/null || \
+          printf '\033[2m  ℹ tmux split failed — view output: opencode attach %s\033[0m\n' "$url" >&2
+      fi
     fi
-  elif "$TMUX_BIN" info &>/dev/null 2>&1; then
+    return
+  fi
+
+  # ── Case 2: Not inside tmux but tmux server is reachable ──
+  if "$TMUX_BIN" info &>/dev/null 2>&1; then
     local existing_windows
     existing_windows="$("$TMUX_BIN" list-windows -a -F '#{window_name}' 2>/dev/null | grep -c "oc-tui" || true)"
     if [[ "$existing_windows" -eq 0 ]]; then
       "$TMUX_BIN" new-window -n "oc-tui" "opencode attach '$url'" 2>/dev/null || true
     fi
+    return
   fi
+
+  # ── Case 3: No tmux at all — log gracefully ──
+  printf '\033[2m  ℹ tmux not active — view live output: opencode attach %s\033[0m\n' "$url" >&2
 }
 
 open_attach_pane "$OC_URL"

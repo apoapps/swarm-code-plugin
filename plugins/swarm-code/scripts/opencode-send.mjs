@@ -56,9 +56,30 @@ switch (cmd) {
 
   case "status": {
     const s = readState();
-    if (!s?.url) { console.log("dead"); break; }
+    if (!s?.url) {
+      console.log("┌─ swarm-code status ──────────────────────────");
+      console.log("│  Server:  NOT RUNNING");
+      console.log("│");
+      console.log("│  Start:   node opencode-send.mjs ensure-server");
+      console.log("└──────────────────────────────────────────────");
+      break;
+    }
     const alive = await isServerAlive(s.url);
-    console.log(alive ? `alive ${s.url}` : "dead");
+    const uptime = s.startedAt ? Math.round((Date.now() - s.startedAt) / 1000) : null;
+    const uptimeStr = uptime != null
+      ? uptime < 60 ? `${uptime}s` : uptime < 3600 ? `${Math.floor(uptime / 60)}m ${uptime % 60}s` : `${Math.floor(uptime / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`
+      : "unknown";
+    console.log("┌─ swarm-code status ──────────────────────────");
+    console.log(`│  Server:    ${alive ? "✓ RUNNING" : "✗ DEAD"}`);
+    console.log(`│  URL:       ${s.url}`);
+    console.log(`│  Session:   ${s.sessionID ?? "(none)"}`);
+    console.log(`│  Uptime:    ${uptimeStr}`);
+    console.log(`│  CWD:       ${s.cwd ?? "(unknown)"}`);
+    if (!alive) {
+      console.log("│");
+      console.log("│  Server died. Restart: node opencode-send.mjs ensure-server");
+    }
+    console.log("└──────────────────────────────────────────────");
     break;
   }
 

@@ -6,6 +6,23 @@ allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), AskUserQuestion
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
 
+## MANDATORY: Always use this skill for delegation
+
+When the swarm-code plugin is loaded, Claude **MUST** delegate coding tasks, analysis, and research to the swarm team via:
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" execute "<enriched task with context>"
+```
+
+**Rules:**
+- Do NOT attempt complex analysis yourself when swarm-code is available — delegate it
+- Each execution creates a **named agent** (Greek mythology names) that works autonomously
+- For multi-faceted tasks, the system auto-decomposes into 2-4 parallel agents
+- Always enrich the prompt with file paths, code snippets, and error context before delegating
+- After receiving results, validate and synthesize — never blindly forward raw output
+
+---
+
 **This is the recommended command for all delegation.** It auto-detects task complexity and routes to the right execution mode.
 
 Raw arguments: `$ARGUMENTS`

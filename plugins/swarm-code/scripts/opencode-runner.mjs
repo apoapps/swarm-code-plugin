@@ -878,13 +878,30 @@ async function handleExecute(flags, positional) {
     model = _priority[0] ?? "minimax/MiniMax-M2.7";
   }
 
+  // ── Auto-open tmux status pane if available ──
+  if (process.env.TMUX) {
+    try {
+      const tmux = execSync("command -v tmux", { encoding: "utf8" }).trim();
+      const panes = execSync(`${tmux} list-panes -F '#{pane_current_command}' 2>/dev/null`, { encoding: "utf8" });
+      if (!panes.includes("tail") && !panes.includes("opencode")) {
+        const stateDir = path.join(CWD, ".opencode", "state");
+        const logTarget = fs.existsSync(stateDir)
+          ? `${stateDir}/*.log`
+          : "/tmp/oc-server.log";
+        execSync(`${tmux} split-window -v -l 25% "tail -f ${logTarget} 2>/dev/null || echo 'Waiting for swarm-code output...'; sleep 3600" 2>/dev/null`, { encoding: "utf8" });
+      }
+    } catch { /* tmux not available or split failed — continue silently */ }
+  }
+
   // ── Execute single agent ──
   const { pickOne, agentTag: colorTag } = await import("./lib/names.mjs");
   const agent = pickOne();
   agent.model = model;
 
+  process.stderr.write(`\n  ${C.cyan}⚡ swarm-code${C.reset} starting agent ${C.bold}${agent.name}${C.reset} ${C.dim}(${agent.trait})${C.reset}\n`);
+
   const tag = colorTag(agent);
-  process.stderr.write(`\n  ${tag} ${C.dim}${model.split("/").pop()}${C.reset}\n`);
+  process.stderr.write(`  ${tag} ${C.dim}${model.split("/").pop()}${C.reset}\n`);
   const stopSpinner = startSpinner(tag);
 
   const template = loadPrompt("ask");
@@ -941,8 +958,43 @@ function agentTag(agent) {
 
 // ─── Main ────────────────────────────────────────────────────────────
 
+// ─── Welcome banner ───────────────────────────────────────────────────
+
+function printWelcome(command, config) {
+  // Skip for utility commands that pipe output
+  if (['status', 'result', 'models'].includes(command)) return;
+  // Skip if not a TTY (piped/non-interactive)
+  if (!process.stderr.isTTY) return;
+
+  const model = (config.modelPriority ?? [])[0] ?? 'auto-detect';
+  const modelShort = model.includes('/') ? model.split('/').pop() : model;
+  const provider = model.includes('/') ? model.split('/')[0] : 'opencode';
+
+  const W = 54;
+  const pad = (s, n) => s + ' '.repeat(Math.max(0, n - s.length));
+
+  const lines = [
+    `${C.cyan}${C.bold} swarm-code${C.reset}${C.dim} · agent swarm adapter${C.reset}`,
+    ``,
+    `${C.dim}  by ${C.reset}${C.bold}Alejandro Apodaca Cordova${C.reset}`,
+    `${C.dim}  ❯ ${C.reset}github.com/apoapps   ${C.dim}❯ ${C.reset}apoapps.com`,
+    ``,
+    `${C.yellow}  ⚡ ${C.reset}${C.bold}${modelShort}${C.reset}${C.dim} via ${provider} (OpenCode CLI)${C.reset}`,
+    `${C.dim}     not Claude — real cost savings${C.reset}`,
+  ];
+
+  process.stderr.write(`\n${C.dim}╭${'─'.repeat(W)}╮${C.reset}\n`);
+  for (const l of lines) {
+    process.stderr.write(`${C.dim}│${C.reset}  ${l}\n`);
+  }
+  process.stderr.write(`${C.dim}╰${'─'.repeat(W)}╯${C.reset}\n\n`);
+}
+
 async function main() {
   const { command, flags, positional } = parseArgs(process.argv);
+
+  // Show welcome on every interactive run
+  printWelcome(command, getConfig(CWD));
 
   switch (command) {
     case "setup":       await handleSetup(flags); break;
