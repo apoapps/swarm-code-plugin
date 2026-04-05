@@ -1,5 +1,5 @@
 {
-  "description": "swarm-code v2.1.1 hooks — SessionStart version banner + PreToolUse delegation guardrails (Bash + Agent)",
+  "description": "swarm-code v2.3 hooks — SessionStart version banner only. No Bash blocking.",
   "hooks": {
     "SessionStart": [
       {
@@ -13,16 +13,6 @@
       }
     ],
     "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs\"",
-            "timeout": 3
-          }
-        ]
-      },
       {
         "matcher": "Agent",
         "hooks": [

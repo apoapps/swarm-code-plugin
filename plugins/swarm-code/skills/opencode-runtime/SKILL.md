@@ -1,6 +1,6 @@
 ---
 name: opencode-runtime
-description: Delegate a task to an OpenCode worker (Haiku subagent). No tmux required. Use for analysis, code review, planning, or any task where offloading saves Claude tokens.
+description: Spawn a Haiku worker to run a task via OpenCode. The worker calls oc-run.sh which executes opencode run headlessly. No tmux, no server, no custom UI.
 user-invocable: false
 ---
 
@@ -8,51 +8,62 @@ user-invocable: false
 
 # OpenCode Runtime
 
-Spawn a Haiku subagent that runs OpenCode via bash. Use this when delegating a well-defined task saves tokens vs doing it yourself.
+Spawn a Haiku subagent that relays your task to OpenCode via bash. Progress shows in Claude's native agent panel.
 
-## How to delegate (the only thing you need to do)
+---
 
-Use the Agent tool with:
-- `subagent_type`: `"swarm-code:opencode-worker"`
-- `model`: `"haiku"`
-- `prompt`: your full task description (be specific — the worker has no context)
+## How to delegate
 
-Example:
 ```
 Agent(
   subagent_type="swarm-code:opencode-worker",
   model="haiku",
-  prompt="Review the auth middleware in src/middleware/auth.ts for security issues. List findings as: [SEVERITY] file:line — description."
+  prompt="<your full task with all context inline>"
 )
 ```
 
-The Haiku agent will:
+The Haiku worker will:
 1. ACK via SendMessage
-2. Run `oc-run.sh` which calls `opencode run --model <model> "<prompt>"`
-3. Stream colored progress to `/tmp/swarm-code-logs/oc-team.log` (visible in oc-team pane if tmux active)
-4. Return the result via SendMessage
+2. Run `bash oc-run.sh "<prompt>"` → calls `opencode run --model <m> "<prompt>"`
+3. Return the result via SendMessage
+
+---
 
 ## When to use
 
-- Code review, analysis, or architectural planning with clear scope
-- Tasks over ~200 words of context that don't need live file edits
-- Offloading repetitive analysis work (linting patterns, summarizing logs, etc.)
+- Code review of a specific diff or file excerpt
+- Writing an implementation plan with clear requirements
+- Answering a specific technical question with context
+- Any analytical task over ~50 tokens where you'd repeat work OpenCode can do
+
+---
 
 ## When NOT to use
 
-- Tasks requiring iterative file editing — do those yourself
-- Tasks where you need intermediate results to proceed
-- Simple lookups or questions you can answer immediately
+- Tasks that need live file editing (do those yourself)
+- Short questions you can answer in one sentence
+- Tasks requiring iterative back-and-forth with the user mid-task
 
-## No tmux required
+---
 
-The oc-team split-pane is **optional eye candy**. The worker runs fine without it.
-If tmux is active and `/swarm-code:init` was run, colored logs appear in the oc-team pane automatically.
+## Prompt requirements
+
+Workers CANNOT read files. Include all context inline:
+
+```
+## Task
+Review this function for bugs.
+
+## Code
+<paste the actual code here>
+
+## Output Format
+Bullet list: [SEVERITY] file:line — description. Max 5 findings.
+```
+
+---
 
 ## Model setup
 
-Models are configured once via:
-```
-/swarm-code:init
-```
-The worker picks the best available model from config. You can override by passing a model ID as the second argument to `oc-run.sh` inside the worker prompt.
+Run `/swarm-code:init` once per project to configure the OpenCode model.
+The worker automatically uses the configured model — no manual override needed.

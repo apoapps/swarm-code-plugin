@@ -63,19 +63,15 @@ function setupTmuxPane() {
 
 function printVersionBanner(_paneCreated) {
   const version = getVersion();
-  const inTmux = !!process.env.TMUX;
-  const tmuxStatus = inTmux
-    ? "tmux active · run /swarm-code:init to open oc-team pane"
-    : "no tmux · run /swarm-code:init when ready";
 
   const banner = [
     "",
-    `[swarm-code v${version}] ${tmuxStatus}`,
+    `[swarm-code v${version}] ready`,
     ``,
-    `To delegate a task to OpenCode (saves 70-80% tokens):`,
+    `Delegate to OpenCode (saves 70-80% tokens):`,
     `  Agent(subagent_type="swarm-code:opencode-worker", model="haiku", prompt="<task>")`,
     ``,
-    `Worker runs: opencode run --model <model> "<prompt>"  (no tmux, no server needed)`,
+    `Run /swarm-code:init once per project to configure model and project context.`,
     "",
   ].join("\n");
 
