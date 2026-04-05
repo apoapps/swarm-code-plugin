@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * pre-tool-use.mjs — PreToolUse hook
+ * pre-tool-use.mjs — PreToolUse guardrail hook (v2.1.1)
  *
- * Intercepts Bash tool calls that look like heavy analytical work and
- * redirects Claude to use OpenCode via swarm-code instead.
+ * Intercepts two types of tool calls:
  *
- * Behavior:
- *   - Default: outputs a suggestion (non-blocking) — Claude reads it and decides
- *   - SWARM_FORCE=1: blocks the tool call and forces OpenCode delegation
+ * 1. Bash — heavy analytical work → suggest/force OpenCode delegation
+ * 2. Agent — spawned without team_name → enforce experimental agent-teams pattern
+ *
+ * Modes:
+ *   - Default: outputs a hint (non-blocking) — Claude reads it and decides
+ *   - SWARM_FORCE=1: blocks the tool call with a reason
  *   - SWARM_DELEGATE=0: passes through silently (opt-out)
  *
  * Made by Alejandro Apodaca Cordova (apoapps.com)
@@ -30,58 +32,87 @@ try {
 
 const { tool_name, tool_input } = toolData;
 
-// ─── Only intercept Bash calls ────────────────────────────────────────
+// Opt-out
+if (process.env.SWARM_DELEGATE === "0") process.exit(0);
+
+// ═══════════════════════════════════════════════════════════════════════
+// GUARDRAIL 1 — Agent tool without agent teams
+// ═══════════════════════════════════════════════════════════════════════
+if (tool_name === "Agent") {
+  const hasTeam = tool_input?.team_name != null && tool_input.team_name !== "";
+  const isOcWorker = (tool_input?.subagent_type ?? "").includes("opencode-worker");
+
+  // If it's an opencode-worker without a team → enforce team membership
+  if (isOcWorker && !hasTeam) {
+    const reason = [
+      "[swarm-code] opencode-worker DEBE pertenecer a un agent team.",
+      "",
+      "USA team_name:",
+      "  TeamCreate(team_name='oc-team', description='...')",
+      "  Agent(subagent_type='swarm-code:opencode-worker', name='worker-1', team_name='oc-team', ...)",
+      "",
+      "Los workers se comunican via SendMessage — no como parallel agents.",
+    ].join("\n");
+
+    if (process.env.SWARM_FORCE === "1") {
+      console.log(JSON.stringify({ decision: "block", reason }));
+    } else {
+      process.stdout.write(`[swarm-code guardrail] ${reason}\n`);
+    }
+    process.exit(0);
+  }
+
+  // If spawning multiple agents without team → warn to use agent teams
+  const promptLen = (tool_input?.prompt ?? "").length;
+  if (!hasTeam && promptLen > 100) {
+    const hint =
+      "[swarm-code] Considera usar agent teams (experimental) en lugar de agentes sueltos. " +
+      "TeamCreate → Agent(team_name=...) → SendMessage para comunicación entre agentes.";
+
+    if (process.env.SWARM_FORCE === "1") {
+      console.log(JSON.stringify({ decision: "block", reason: hint }));
+    } else {
+      process.stdout.write(`${hint}\n`);
+    }
+  }
+
+  process.exit(0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// GUARDRAIL 2 — Bash heavy analytical work → delegate to OpenCode
+// ═══════════════════════════════════════════════════════════════════════
 if (tool_name !== "Bash") process.exit(0);
 
 const cmd = tool_input?.command ?? "";
 const desc = tool_input?.description ?? "";
 
-// Opt-out: SWARM_DELEGATE=0 disables this hook entirely
-if (process.env.SWARM_DELEGATE === "0") process.exit(0);
-
-// ─── Check if swarm-code is configured ───────────────────────────────
+// Check if swarm-code is configured
 const configPath = path.join(process.cwd(), ".opencode", "config.json");
 const globalConfigPath = path.join(process.env.HOME ?? "", ".opencode", "config.json");
-const hasConfig =
-  existsSync(configPath) || existsSync(globalConfigPath);
-
-// Only intercept if swarm-code has been initialized
+const hasConfig = existsSync(configPath) || existsSync(globalConfigPath);
 if (!hasConfig) process.exit(0);
 
-// ─── Detect heavy analytical work ────────────────────────────────────
 const HEAVY_PATTERNS = [
-  // Full-codebase analysis
   /\b(find|grep|rg)\b.*-r.{5,}/,
-  // Counting / stats across files
   /\bwc\b.*-l\b/,
-  // Long pipelines (3+ pipes usually = analysis)
   /\|.*\|.*\|/,
-  // Explicit analysis keywords in description
   /\b(analiz[ae]|audit|benchmark|profile|investigat)\b/i,
-  // Big loops
   /for .+ in \$\(.*\).*do/,
 ];
 
 const isHeavy = HEAVY_PATTERNS.some((p) => p.test(cmd) || p.test(desc));
-
 if (!isHeavy) process.exit(0);
 
-// ─── Force mode: block the call ───────────────────────────────────────
+const bashReason =
+  `[swarm-code] Heavy analysis detected — delegate to OpenCode to save Claude tokens:\n\n` +
+  `  bash "\${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<task description>"\n\n` +
+  `El bridge abre tmux split-pane y entrega resultado via notify file.`;
+
 if (process.env.SWARM_FORCE === "1") {
-  console.log(
-    JSON.stringify({
-      decision: "block",
-      reason: `[swarm-code] Heavy analysis detected — delegate to OpenCode to save Claude tokens:\n\n  node "${RUNNER}" execute "<task description>"\n\nOr use the execute skill directly.`,
-    })
-  );
-  process.exit(0);
+  console.log(JSON.stringify({ decision: "block", reason: bashReason }));
+} else {
+  process.stdout.write(`${bashReason}\n`);
 }
 
-// ─── Suggestion mode: hint to Claude (non-blocking) ──────────────────
-// Claude reads this output as context before deciding to proceed
-process.stdout.write(
-  `[swarm-code hint] This Bash command looks like analytical work. ` +
-    `Consider delegating to OpenCode to save Claude tokens: ` +
-    `\`node "${RUNNER}" execute "<task>"\`\n`
-);
 process.exit(0);

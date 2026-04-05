@@ -1,12 +1,12 @@
 {
-  "description": "swarm-code hooks — SessionStart context injection + PreToolUse delegation interceptor",
+  "description": "swarm-code v2.1.1 hooks — SessionStart version banner + PreToolUse delegation guardrails (Bash + Agent)",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/task-type.mjs\" SessionStart",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/session-hook.mjs\" SessionStart",
             "timeout": 5
           }
         ]
@@ -15,6 +15,16 @@
     "PreToolUse": [
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs\"",
+            "timeout": 3
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
         "hooks": [
           {
             "type": "command",

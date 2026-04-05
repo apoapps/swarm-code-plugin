@@ -1,79 +1,107 @@
 ---
 name: opencode-orchestrate
-description: Multi-team orchestration pattern — Claude directs via experimental agent teams, OpenCode workers analyze in tmux split panes, agents communicate via SendMessage.
+description: Multi-team orchestration — Claude directs via experimental agent teams, OpenCode workers analyze in tmux split panes, communicate via SendMessage.
 user-invocable: true
 experimental:
   - agent-teams
 ---
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
-<!-- v2.1.0 -->
+<!-- v2.1.1 -->
 
 # OpenCode Multi-Team Orchestration
 
-> **REQUIERE**: tmux activo + `experimental.agent-teams` habilitado en Claude Code.
-> Si no estás en tmux, el bridge falla. Si agent-teams no está habilitado, usa `/swarm-code:init` primero.
+---
 
-## El principio
+## ⛔ STOP — ANTES de hacer CUALQUIER COSA, verifica esto
 
-**Claude (Sonnet/Opus) = director.** No hace análisis — crea teams y delega.
-**opencode-worker agents = análisis barato.** Corren en tmux split panes, reportan via SendMessage.
-**Los agentes se comunican entre ellos** — el team lead coordina via SendMessage, no batch commands.
-
+**¿Estás dentro de una sesión tmux?**
+```bash
+echo ${TMUX:-"NO TMUX — DETENTE"}
 ```
-Claude Sonnet (director)
-  ├── Team "análisis": opencode-worker ──SendMessage──► team-lead
-  ├── Team "review":   opencode-worker ──SendMessage──► team-lead
-  └── Team "plan":     opencode-worker ──SendMessage──► team-lead
-                            ↕ tmux split pane (visible en pantalla)
+Si no hay `$TMUX` → **NO continúes**. Dile al usuario: "swarm-code requiere tmux. Corre `tmux new -s work` y vuelve a abrir Claude Code."
+
+**¿Tienes agent-teams habilitado?**
+El frontmatter de este skill declara `experimental: [agent-teams]`. Si no está habilitado, las herramientas `TeamCreate` y `SendMessage` no existen → no continúes.
+
+---
+
+## ⛔ PROHIBIDO — No hagas esto
+
+```python
+# ❌ PROHIBIDO — parallel agents sueltos (no agent teams)
+Agent(subagent_type="opencode:opencode-worker", name="w1", prompt="...")
+Agent(subagent_type="opencode:opencode-worker", name="w2", prompt="...")
+# Esto no tiene team, no tiene comunicación entre agentes.
+
+# ❌ PROHIBIDO — Promise.all / batch commands paralelos
+# El bridge nunca se debe llamar en loop concurrente desde bash.
 ```
 
-## OBLIGATORIO: Cuando este skill se invoca, llama el bridge
+---
 
-Al invocar este skill, Claude DEBE llamar el bridge inmediatamente. No solo describir — ejecutar:
+## ✅ OBLIGATORIO — Haz esto
+
+Al invocar este skill, **LLAMA el bridge inmediatamente**:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<tarea>"
 ```
 
-No esperes input adicional. Detecta el tipo de tarea automáticamente y abre el split-pane.
-
-## Cómo crear un agent team con opencode-workers
+Si la tarea requiere múltiples workers, **crea un team primero**:
 
 ```python
-# 1. Crear el team (experimental agent-teams)
-TeamCreate(team_name="oc-team", description="OpenCode analysis team")
+# 1. Team
+TeamCreate(team_name="oc-team", description="análisis + review")
 
-# 2. Spawnar workers — cada uno abre su propio tmux split-pane
+# 2. Workers dentro del team
 Agent(
   subagent_type="swarm-code:opencode-worker",
   name="worker-análisis",
-  team_name="oc-team",
-  prompt="Analiza los endpoints en src/api/ y reporta via SendMessage al team-lead."
+  team_name="oc-team",   # ← OBLIGATORIO
+  prompt="Analiza src/api/ — reporta via SendMessage al team-lead."
 )
-
 Agent(
   subagent_type="swarm-code:opencode-worker",
   name="worker-review",
-  team_name="oc-team",
-  prompt="Revisa el último diff y reporta issues via SendMessage al team-lead."
+  team_name="oc-team",   # ← OBLIGATORIO
+  prompt="Revisa el último diff — reporta via SendMessage al team-lead."
 )
 ```
 
+---
+
 ## Protocolo de comunicación entre agentes
 
-Los workers NO retornan batch output — se comunican via SendMessage:
+Los workers **NO retornan batch output** — usan `SendMessage`:
 
 ```
 # Worker → Team lead (cuando termina)
 SendMessage(to: "team-lead", message: "✓ análisis listo\n---\n<resultado>")
 
-# Team lead → Worker (para dar tarea adicional)
+# Team lead → Worker (tarea adicional)
 SendMessage(to: "worker-análisis", message: "Ahora revisa también src/lib/")
 
-# Worker ACK inmediato
+# ACK inmediato del worker
 ⚡ oc | revisando src/lib/
 ```
+
+---
+
+## El principio
+
+```
+Claude Sonnet (director)
+  ├── worker-análisis  ──bridge──► tmux split-pane ──SendMessage──► team-lead
+  ├── worker-review    ──bridge──► tmux split-pane ──SendMessage──► team-lead
+  └── worker-plan      ──bridge──► tmux split-pane ──SendMessage──► team-lead
+```
+
+- **Claude** = director. No hace análisis. Sintetiza resultados.
+- **opencode-workers** = análisis barato. Corren en tmux split-panes.
+- **Comunicación** = siempre via SendMessage dentro del team.
+
+---
 
 ## Cuándo usar cada tipo
 
@@ -84,30 +112,15 @@ SendMessage(to: "worker-análisis", message: "Ahora revisa también src/lib/")
 | Preguntas de arquitectura | opencode-worker | ~$0 |
 | Orquestar, sintetizar, decidir | Claude Sonnet | $3/M |
 
-## Flujo completo
-
-```
-1. Claude recibe tarea compleja
-2. Claude verifica: ¿tmux activo? ¿agent-teams habilitado?
-3. Claude crea team con TeamCreate
-4. Claude spawna opencode-workers — cada uno abre split-pane en tmux
-5. Workers analizan → reportan via SendMessage al team-lead
-6. Claude sintetiza respuestas y responde al usuario
-```
+---
 
 ## Ahorro de tokens estimado
 
-Sin orquestación: Claude hace todo = 8,000-15,000 tokens por tarea compleja
-Con agent teams: Claude solo dirige = 1,000-2,000 tokens por tarea compleja
+Sin orquestación: 8,000–15,000 tokens por tarea compleja
+Con agent teams: 1,000–2,000 tokens por tarea compleja
 **Ahorro: ~80%**
 
-## Reglas
-
-- Claude NO usa `Promise.all` ni parallel agents — usa agent teams + SendMessage
-- Los workers siempre abren tmux split-pane (nunca new-window)
-- Los workers se comunican via SendMessage, no stdout batch
-- Claude SÍ sintetiza resultados de múltiples workers
-- Claude SÍ valida el resultado final antes de presentarlo al usuario
+---
 
 ## Bridge path
 
