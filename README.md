@@ -189,6 +189,28 @@ plugins/opencode/
 
 ---
 
+## Anthropic Terms of Service Compliance
+
+This plugin was reviewed against [Anthropic's Acceptable Use Policy (AUP)](https://www.anthropic.com/legal/aup) and the [Additional Use Case Guidelines for Agentic Use](https://support.anthropic.com/en/articles/12005017-using-agents-according-to-our-usage-policy).
+
+**It is compliant.** Here's why:
+
+| Concern | Policy reference | Assessment |
+|---------|-----------------|------------|
+| Monitoring terminal output via `tmux pipe-pane` | AUP: *"intercept communications or monitor devices **without authorization** of the system owner"* | ✓ You install this on your own machine, with full authorization. No unauthorized interception. |
+| Orchestrating OpenCode (another AI) | AUP: Agentic use cases must comply with the AUP | ✓ Delegating to OpenCode for developer productivity is a permitted agentic use. No prohibited content, no deception, no harm. |
+| Claude Code plugin distribution | [MCP Directory Policy](https://support.anthropic.com/en/articles/11697096-anthropic-mcp-directory-policy) | ✓ Not submitted to Anthropic's Connector Directory, so directory policy does not apply. Distributed independently as open source. |
+| Using Claude to control other AI tools | AUP: Universal Usage Standards | ✓ No prohibited categories triggered — not malware, not multi-system compromise, not bypassing security controls. |
+
+**Sources reviewed:**
+- Anthropic Acceptable Use Policy — https://www.anthropic.com/legal/aup
+- Agentic Use Guidelines — https://support.anthropic.com/en/articles/12005017-using-agents-according-to-our-usage-policy
+- MCP Directory Policy — https://support.anthropic.com/en/articles/11697096-anthropic-mcp-directory-policy
+
+> This plugin is a personal developer productivity tool. You own the machine, you authorize the plugin, you control the data. All activity stays local.
+
+---
+
 ## Disclaimer
 
 Unofficial community plugin. Not affiliated with Anthropic, OpenCode, or OpenAI. Anthropic and Claude are trademarks of Anthropic. OpenCode is a trademark of its respective owners.
