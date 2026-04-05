@@ -1,21 +1,21 @@
 {
-  "name": "opencode",
+  "name": "swarm-code",
   "owner": {
     "name": "Alejandro Apodaca Cordova (apoapps.com)"
   },
   "metadata": {
-    "description": "Delegate tasks to OpenCode from Claude Code — ask, review, and plan to save tokens.",
+    "description": "Agent swarm adapter — Claude Code leads, OpenCode executes. Save 70-80% tokens.",
     "version": "1.0.0"
   },
   "plugins": [
     {
-      "name": "opencode",
-      "description": "Delegate questions, code reviews, and planning to OpenCode to save Claude tokens.",
+      "name": "swarm-code",
+      "description": "Agent swarm adapter: Claude Code leads, OpenCode workers execute. Shared session, split-pane TUI, 70-80% token savings.",
       "version": "1.0.0",
       "author": {
         "name": "Alejandro Apodaca Cordova (apoapps.com)"
       },
-      "source": "./plugins/opencode"
+      "source": "./plugins/swarm-code"
     }
   ]
 }
