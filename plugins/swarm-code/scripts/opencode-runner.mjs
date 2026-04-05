@@ -1018,7 +1018,16 @@ async function handleInit(flags) {
     try {
       const panes = execSync("tmux list-panes -F '#{pane_title}' 2>/dev/null", { encoding: "utf8" }).trim().split("\n");
       if (!panes.includes("oc-team")) {
-        execSync("tmux split-window -h -d 2>/dev/null; tmux select-pane -T 'oc-team' -t '{right}' 2>/dev/null", { encoding: "utf8" });
+        const stateDir = path.join(CWD, ".opencode", "state");
+        const watchCmd = fs.existsSync(stateDir)
+          ? `tail -f "${stateDir}"/*.log 2>/dev/null`
+          : `echo '  swarm-code oc-team — waiting for jobs...'; sleep 86400`;
+        const paneCmd = [
+          `printf '\\033[1;36m  swarm-code · oc-team\\033[0m\\n\\n'`,
+          watchCmd,
+        ].join("; ");
+        execSync(`tmux split-window -h -d "bash -c '${paneCmd.replace(/'/g, `'"'"'`)}'" 2>/dev/null`, { encoding: "utf8" });
+        execSync(`tmux select-pane -T 'oc-team' -t '{right}' 2>/dev/null`, { encoding: "utf8" });
         tmuxLine = ok("`oc-team` split pane created");
       } else {
         tmuxLine = ok("`oc-team` split pane ready");
