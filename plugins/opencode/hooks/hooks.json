@@ -24,7 +24,7 @@
     {
       "id": "task-type",
       "name": "Task Type Detector",
-      "lifecycle": "PreExecution",
+      "lifecycle": "SessionStart",
       "file": "./task-type.mjs",
       "enabled": true,
       "description": "Clasifica el prompt como ask/review/plan antes de enviarlo al bridge. Permite que el bridge reciba solo el prompt sin flags."
