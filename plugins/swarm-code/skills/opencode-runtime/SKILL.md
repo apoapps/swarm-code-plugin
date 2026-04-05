@@ -5,43 +5,42 @@ user-invocable: false
 ---
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
-<!-- v2.1.0 -->
 
 # OpenCode Runtime
 
-Úsalo solo dentro del subagente `swarm-code:opencode-worker`.
+Use only inside `swarm-code:opencode-worker` subagents.
 
-> **REQUIERE tmux activo.** Si `$TMUX` no está set, el bridge falla con exit 1.
-> El worker debe verificar esto antes de llamar el bridge.
+> **REQUIRES tmux active.** If `$TMUX` is not set, the bridge exits with code 1.
+> The worker must verify this before calling the bridge.
 
-## Verificación previa (obligatoria)
+## Pre-flight check (required)
 
 ```bash
 if [[ -z "${TMUX:-}" ]]; then
-  SendMessage(to: "team-lead", message: "✗ tmux no activo — no puedo correr el bridge")
+  SendMessage(to: "team-lead", message: "✗ tmux not active — cannot run bridge")
   exit
 fi
 ```
 
-## Interfaz mínima
+## Minimal interface
 
-Solo necesitas el prompt. Todo lo demás es automático:
+Only the prompt is required. Everything else is automatic:
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<prompt>"
 ```
 
-## Qué hace el bridge automáticamente
+## What the bridge does automatically
 
-| Paso | Qué hace | Cómo |
-|------|----------|------|
-| **Tmux check** | Falla si no está en sesión tmux | Verifica `$TMUX` al inicio |
-| **Tipo de tarea** | Detecta ask / review / plan | Analiza keywords del prompt |
-| **Modelo** | Elige según config del proyecto | Lee modelPriority, fallback dinámico |
-| **Visibilidad** | Split-pane en ventana actual | `tmux split-window -h` — nunca new-window |
-| **Output** | Escribe a notify file | Notifica al team-lead con DONE:JOB_ID |
+| Step | What | How |
+|------|------|-----|
+| **tmux check** | Fails if not in a tmux session | Checks `$TMUX` on startup |
+| **Task type** | Detects ask / review / plan | Keyword analysis of the prompt |
+| **Model** | Picks from project config | Reads modelPriority, dynamic fallback |
+| **Visibility** | Writes to shared log → oc-team pane | Real-time output via `tail -f` |
+| **Output** | Writes to notify file | Signals team-lead with DONE:JOB_ID |
 
-## Override de tipo (solo si es necesario)
+## Type override (only when needed)
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" --type review "<prompt>"
@@ -49,31 +48,18 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" --type plan   "<prompt>"
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" --type ask    "<prompt>"
 ```
 
-## Chat multi-turno
-
-Para mantener contexto entre mensajes:
+## Model setup (once per project)
 
 ```bash
-CHAT="${CLAUDE_PLUGIN_ROOT}/scripts/opencode-chat.sh"
-
-SID=$(bash "$CHAT" new)
-bash "$CHAT" send "$SID" "primer mensaje"
-bash "$CHAT" send "$SID" "siguiente mensaje con contexto del anterior"
-bash "$CHAT" history "$SID"
+node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" init
 ```
 
-## Setup del modelo (una vez por proyecto)
+Detects all available models in your OpenCode installation and saves the priority list.
 
-```bash
-node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup
-```
+## What NOT to do from the worker
 
-Detecta todos los modelos disponibles en tu instalación de OpenCode y guarda la priority list.
-
-## No hacer desde el worker
-
-- No leer archivos (usa Read/Grep en el agente principal)
-- No escribir archivos
-- No llamar `status`, `result`, ni `setup` desde el worker
-- No pasar `--model` al bridge (el runner lo maneja)
-- No llamar el bridge si no estás en tmux
+- Don't read files (use Read/Grep in the main agent)
+- Don't write files
+- Don't call `status`, `result`, or `setup` from the worker
+- Don't pass `--model` to the bridge (the runner handles it)
+- Don't call the bridge without tmux active

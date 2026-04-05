@@ -9,8 +9,6 @@ BOLD='\033[1m'
 RESET='\033[0m'
 GRAY='\033[38;5;240m'
 YELLOW='\033[38;5;221m'
-GREEN='\033[38;5;114m'
-RED='\033[38;5;203m'
 
 SHARED_LOG="${CLAUDE_PLUGIN_DATA:-/tmp}/swarm-code-logs/oc-team.log"
 mkdir -p "$(dirname "$SHARED_LOG")"
@@ -58,13 +56,9 @@ cat << 'LOGO'
                               ╙▀▀██████████████████████▀▀╙─
 LOGO
 printf "${RESET}"
-
-printf "${DIM}                         made by Alejandro Apodaca · apoapps.com${RESET}\n"
-printf "\n"
-printf "  ${BOLD}${CYAN}swarm-code${RESET} ${GRAY}·${RESET} ${DIM}oc-team${RESET}\n"
+printf "${DIM}                    made by Alejandro Apodaca · apoapps.com${RESET}\n"
+printf "\n  ${BOLD}${CYAN}swarm-code${RESET} ${GRAY}·${RESET} ${DIM}oc-team${RESET}\n"
 printf "${GRAY}  ──────────────────────────────────────────────────────${RESET}\n"
-printf "\n"
 printf "  ${DIM}${YELLOW}⏳ accepting jobs...${RESET}\n\n"
 
-# Live dashboard — tail shared log
 exec tail -f "$SHARED_LOG"

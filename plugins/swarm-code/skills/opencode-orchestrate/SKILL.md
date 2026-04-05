@@ -1,6 +1,6 @@
 ---
 name: opencode-orchestrate
-description: Multi-team orchestration — Claude directs via experimental agent teams, OpenCode workers analyze in tmux split panes, communicate via SendMessage.
+description: Multi-team orchestration — Claude directs via experimental agent teams, OpenCode workers analyze in the oc-team pane, communicate via SendMessage.
 user-invocable: true
 experimental:
   - agent-teams
@@ -15,106 +15,103 @@ allowed-tools:
 ---
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
-<!-- v2.2.0 -->
 
 # OpenCode Multi-Team Orchestration
 
-**Este skill tiene `allowed-tools` restringido. Solo puedes usar: Bash (bridge), TeamCreate, Agent, SendMessage, TaskCreate/Update/List.**
+**This skill has restricted `allowed-tools`. Only available: Bash (bridge), TeamCreate, Agent, SendMessage, TaskCreate/Update/List.**
 
 ---
 
-## PASO 1 — Verificación automática (OBLIGATORIA)
+## STEP 1 — Environment check (REQUIRED first)
 
-Ejecuta esto PRIMERO, antes de cualquier otra acción:
+Run this BEFORE anything else:
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "verificar entorno"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "verify environment"
 ```
 
-Si falla con "swarm-code requiere tmux" → detente y dile al usuario:
-> "swarm-code requiere tmux activo. Corre `tmux new -s work` y vuelve a abrir Claude Code dentro de esa sesión."
-
-Si el pane ya se creó en SessionStart → el bridge reutilizará el existente.
+If it fails with "swarm-code requires tmux" → stop and tell the user:
+> "swarm-code requires an active tmux session. Run `tmux new -s work` and reopen Claude Code inside it."
 
 ---
 
-## PASO 2 — Para tareas simples: bridge directo
+## STEP 2 — Simple tasks: direct bridge
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<tarea>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<task>"
 ```
 
-Lee el notify file del job cuando termina. Listo.
+Read the notify file when the job completes. Done.
 
 ---
 
-## PASO 3 — Para tareas complejas: agent team
+## STEP 3 — Complex tasks: agent team
 
 ```python
-# 1. Team
-TeamCreate(team_name="oc-team", description="<descripción>")
+# 1. Create team
+TeamCreate(team_name="oc-team", description="<description>")
 
-# 2. Workers (siempre con team_name)
+# 2. Spawn workers (always with team_name)
 Agent(
   subagent_type="swarm-code:opencode-worker",
-  name="worker-análisis",
+  name="worker-analysis",
   team_name="oc-team",
-  prompt="<tarea específica> — reporta resultado via SendMessage al team-lead"
+  prompt="<specific task> — report result via SendMessage to team-lead"
 )
 
 Agent(
   subagent_type="swarm-code:opencode-worker",
   name="worker-review",
   team_name="oc-team",
-  prompt="<otra tarea> — reporta resultado via SendMessage al team-lead"
+  prompt="<other task> — report result via SendMessage to team-lead"
 )
 ```
 
 ---
 
-## Protocolo entre agentes (siempre via SendMessage)
+## Agent communication protocol (always via SendMessage)
 
 ```
-# Worker → team-lead cuando termina
-SendMessage(to: "team-lead", message: "✓ done\n---\n<resultado>")
+# Worker → team-lead when done
+SendMessage(to: "team-lead", message: "✓ done\n---\n<result>")
 
-# team-lead → worker (tarea adicional)
-SendMessage(to: "worker-análisis", message: "<nueva tarea>")
+# team-lead → worker (additional task)
+SendMessage(to: "worker-analysis", message: "<new task>")
 ```
 
-**NO uses Agent sin `team_name`** — el hook PreToolUse lo bloqueará automáticamente.
+**DO NOT use Agent without `team_name`** — the PreToolUse hook will block it.
 
 ---
 
-## ⛔ Prohibido en este skill
+## ⛔ Prohibited in this skill
 
 ```
-❌ Bash de análisis pesado (grep -r, rg, find recursivo, pipelines de 3+)
-   → El hook lo bloquea → usa el bridge
+❌ Heavy Bash analysis (grep -r, rg, find recursive, 3+ pipe chains)
+   → Hook blocks it → use the bridge instead
 
-❌ Agent sin team_name
-   → El hook lo bloquea → usa TeamCreate primero
+❌ Agent without team_name
+   → Hook blocks it → use TeamCreate first
 
-❌ Crear ventanas tmux nuevas (new-window)
-   → El bridge ya tiene el pane desde SessionStart
+❌ Creating new tmux windows (new-window)
+   → Bridge uses the existing oc-team pane
 ```
 
 ---
 
-## Arquitectura
+## Architecture
 
 ```
-SessionStart (automático)
-  └─► setup_tmux_pane()  → crea oc-team pane
-  └─► opencode-server    → inicia en background
+/swarm-code:init (user runs once)
+  └─► creates oc-team split pane
+  └─► activates keyword watcher
 
 Claude (director)
-  ├── bridge → oc-team pane (ya existe)
-  ├── worker-1 (team) → bridge → oc-team pane → SendMessage → team-lead
-  └── worker-2 (team) → bridge → oc-team pane → SendMessage → team-lead
+  ├── bridge → writes to oc-team shared log
+  ├── worker-1 (team) → bridge → log → SendMessage → team-lead
+  └── worker-2 (team) → bridge → log → SendMessage → team-lead
 ```
 
-Ahorro estimado: **~80% tokens de Claude** vs análisis directo.
+Estimated savings: **~80% Claude tokens** vs direct analysis.
 
 ---
 

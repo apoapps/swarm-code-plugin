@@ -112,41 +112,43 @@ fi
 OC_URL="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.url)")"
 OC_SID="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.sessionID)")"
 
-# ─── Abrir opencode attach como split-pane dentro de la sesión actual ────────
-# NUNCA crea ventanas nuevas. Solo split-pane horizontal en la ventana actual.
+# ─── oc-team shared log + pane management ─────────────────────────────────────
 
 SHARED_LOG="${CLAUDE_PLUGIN_DATA:-/tmp}/swarm-code-logs/oc-team.log"
 mkdir -p "$(dirname "$SHARED_LOG")"
+
+TS() { date '+%H:%M:%S'; }
 
 log_to_pane() {
   printf '%s\n' "$1" >> "$SHARED_LOG"
 }
 
+log_job_start() {
+  log_to_pane ""
+  log_to_pane "$(printf '\033[38;5;240m  ── %s ──────────────────────────────────────\033[0m' "$(TS)")"
+  log_to_pane "$(printf '\033[38;5;221m  ⚡ [%s] %s\033[0m' "$CMD" "$(echo "$PROMPT" | head -c 80)")"
+  log_to_pane "$(printf '\033[2m     job %s\033[0m' "$JOB_ID")"
+}
+
 open_attach_pane() {
   local current_window
   current_window="$("$TMUX_BIN" display-message -p '#{window_id}' 2>/dev/null)"
-
-  # Verificar si ya existe un pane oc-team en la ventana actual
   local pane_exists
   pane_exists="$("$TMUX_BIN" list-panes -t "$current_window" -F '#{pane_title}' 2>/dev/null | grep -c "^oc-team$" || true)"
 
   if [[ "$pane_exists" -gt 0 ]]; then
-    # Ya existe — anunciar job en el shared log (oc-team-ui.sh lo muestra)
-    log_to_pane ""
-    log_to_pane "$(printf '\033[38;5;221m  ⚡ job %s starting...\033[0m' "$JOB_ID")"
-    printf '\033[2m  ✓ oc-team pane activo — job anunciado\033[0m\n' >&2
+    log_job_start
     return
   fi
 
-  # No existe — crear con oc-team-ui.sh (logo + tail log, sin opencode TUI)
+  # pane missing — create it with oc-team-ui.sh
   local ui_script="$SCRIPTS_DIR/oc-team-ui.sh"
-  local pane_cmd
-  pane_cmd="${ui_script:-bash --login}"
+  local pane_cmd="${ui_script:-bash --login}"
   if "$TMUX_BIN" split-window -h -d -t "$current_window" -P -F '#{pane_id}' "bash '$pane_cmd'" 2>/dev/null | xargs -I{} "$TMUX_BIN" select-pane -T "oc-team" -t {} 2>/dev/null; then
-    log_to_pane "$(printf '\033[38;5;221m  ⚡ job %s starting...\033[0m' "$JOB_ID")"
-    printf '\033[2m  ✓ oc-team split-pane creado\033[0m\n' >&2
+    sleep 0.5  # let ui script start before writing
+    log_job_start
   else
-    printf '\033[33m⚠ No se pudo crear oc-team pane — continuando sin TUI\033[0m\n' >&2
+    printf '\033[33m⚠ could not create oc-team pane — continuing without TUI\033[0m\n' >&2
   fi
 }
 
