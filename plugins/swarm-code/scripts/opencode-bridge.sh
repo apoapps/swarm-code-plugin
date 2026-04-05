@@ -3,10 +3,14 @@
 #
 # Arquitectura:
 #   1. opencode serve  → servidor HTTP persistente (background, auto-start)
-#   2. opencode attach → TUI en split-pane tmux (Claude y usuario comparten sesión)
+#   2. opencode attach → TUI en split-pane tmux (pane dentro de la sesión actual)
 #   3. HTTP API        → Claude envía mensajes vía opencode-send.mjs
 #
+# REQUIERE tmux activo ($TMUX debe estar set).
+# Nunca crea ventanas nuevas — solo split-pane dentro de la sesión actual.
+#
 # Made by Alejandro Apodaca Cordova (apoapps.com)
+# v2.1.0
 
 set -euo pipefail
 
@@ -14,6 +18,16 @@ SCRIPTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNNER="$SCRIPTS_DIR/opencode-runner.mjs"
 SENDER="$SCRIPTS_DIR/opencode-send.mjs"
 TMUX_BIN="$(command -v tmux 2>/dev/null || echo /opt/homebrew/bin/tmux)"
+
+# ─── Tmux obligatorio ──────────────────────────────────────────────────────────
+# swarm-code requiere tmux activo. Si no estás dentro de una sesión tmux, falla.
+
+if [[ -z "${TMUX:-}" ]]; then
+  printf '\033[31m✗ swarm-code requiere tmux.\033[0m\n' >&2
+  printf '\033[31m  Abre una sesión tmux primero: tmux new -s work\033[0m\n' >&2
+  printf '\033[31m  Luego vuelve a abrir Claude Code dentro de esa sesión.\033[0m\n' >&2
+  exit 1
+fi
 
 # ─── Args ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +73,7 @@ REPORT_FILE="/tmp/oc-report-${JOB_ID}.md"
 # Every prompt includes the DONE protocol so the agent always reports back.
 
 _done_footer() {
-  printf '\n\n---\n[DONE PROTOCOL — MANDATORY]\nYou are a worker in the swarm-code team. Claude Code is the lead in another tmux session.\nWhen you finish your task:\n  1. Write your complete report to: %s\n  2. End the file with exactly (last line): DONE:%s\nDo NOT skip this. Claude reads this file to receive your output.\n' \
+  printf '\n\n---\n[DONE PROTOCOL — MANDATORY]\nYou are a worker in the swarm-code team. Claude Code is the lead in another tmux pane.\nWhen you finish your task:\n  1. Write your complete report to: %s\n  2. End the file with exactly (last line): DONE:%s\nDo NOT skip this. Claude reads this file to receive your output.\n' \
     "$REPORT_FILE" "$JOB_ID"
 }
 
@@ -98,65 +112,41 @@ fi
 OC_URL="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.url)")"
 OC_SID="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.sessionID)")"
 
-# ─── Open opencode attach in tmux split pane ─────────────────────────────
-# User can interact with the same session Claude is talking to.
+# ─── Abrir opencode attach como split-pane dentro de la sesión actual ────────
+# NUNCA crea ventanas nuevas. Solo split-pane horizontal en la ventana actual.
 
 open_attach_pane() {
   local url="$1"
+  local current_window
+  current_window="$("$TMUX_BIN" display-message -p '#{window_id}' 2>/dev/null)"
 
-  # ── Case 1: Inside a tmux session ($TMUX is set) ──
-  if [[ -n "${TMUX:-}" ]]; then
-    # Check if oc-team pane already exists in current window
-    local pane_exists
-    pane_exists="$("$TMUX_BIN" list-panes -F '#{pane_title}' 2>/dev/null | grep -c "^oc-team$" || true)"
-    # Also check if oc-team window exists elsewhere (to join as split)
-    local win_id
-    win_id="$("$TMUX_BIN" list-windows -a -F '#{window_index}:#{session_name}:#{window_name}' 2>/dev/null \
-      | grep ":oc-team$" | head -1 | cut -d: -f1)" || true
+  # Verificar si ya existe un pane oc-team en la ventana actual
+  local pane_exists
+  pane_exists="$("$TMUX_BIN" list-panes -t "$current_window" -F '#{pane_title}' 2>/dev/null | grep -c "^oc-team$" || true)"
 
-    if [[ "$pane_exists" -eq 0 ]]; then
-      if [[ -n "$win_id" ]]; then
-        # oc-team exists as a window — join it as a horizontal split in current window
-        "$TMUX_BIN" join-pane -s ":${win_id}" -h 2>/dev/null && \
-          printf '\033[2m  ✓ oc-team joined as split pane\033[0m\n' >&2 || \
-          printf '\033[2m  ℹ join-pane failed — oc-team window available with prefix+n\033[0m\n' >&2
-      else
-        # No oc-team anywhere — create as horizontal split in current window
-        "$TMUX_BIN" split-window -h "bash '$SCRIPTS_DIR/opencode-splash.sh' '$url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null && \
-          "$TMUX_BIN" select-pane -T "oc-team" 2>/dev/null && \
-          "$TMUX_BIN" select-pane -l 2>/dev/null && \
-          printf '\033[2m  ✓ oc-team split pane created (right side)\033[0m\n' >&2 || \
-          # Fallback: new window
-          { "$TMUX_BIN" new-window -n "oc-team" "bash '$SCRIPTS_DIR/opencode-splash.sh' '$url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null && \
-            printf '\033[2m  ✓ oc-team opened as new window (prefix+n to switch)\033[0m\n' >&2; } || \
-          printf '\033[2m  ℹ tmux open failed — run: opencode attach %s\033[0m\n' "$url" >&2
-      fi
-    fi
+  if [[ "$pane_exists" -gt 0 ]]; then
+    # Ya existe — no hacer nada
+    printf '\033[2m  ✓ oc-team pane ya activo\033[0m\n' >&2
     return
   fi
 
-  # ── Case 2: Not inside tmux but tmux server is reachable ──
-  if "$TMUX_BIN" info &>/dev/null 2>&1; then
-    # Find the first available session to attach the new window to
-    local first_session
-    first_session="$("$TMUX_BIN" list-sessions -F '#{session_name}' 2>/dev/null | head -1)"
-    local existing_windows
-    existing_windows="$("$TMUX_BIN" list-windows -a -F '#{window_name}' 2>/dev/null | grep -c "oc-team" || true)"
-    if [[ "$existing_windows" -eq 0 ]] && [[ -n "$first_session" ]]; then
-      "$TMUX_BIN" new-window -t "$first_session" -n "oc-team" "bash '$SCRIPTS_DIR/opencode-splash.sh' '$url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null || true
-      printf '\033[2m  ✓ tmux window [oc-team] opened in session: %s\033[0m\n' "$first_session" >&2
-    fi
-    return
+  # Crear split horizontal en la ventana actual (lado derecho)
+  if "$TMUX_BIN" split-window -h -t "$current_window" \
+    "bash '$SCRIPTS_DIR/opencode-splash.sh' '$url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null; then
+    "$TMUX_BIN" select-pane -T "oc-team" 2>/dev/null || true
+    "$TMUX_BIN" select-pane -l 2>/dev/null || true  # volver al pane original
+    printf '\033[2m  ✓ oc-team split-pane creado (derecha)\033[0m\n' >&2
+  else
+    printf '\033[31m✗ No se pudo crear split-pane. Verifica que tmux tenga espacio suficiente.\033[0m\n' >&2
+    printf '\033[31m  Puedes correr manualmente: opencode attach %s\033[0m\n' "$url" >&2
+    exit 1
   fi
-
-  # ── Case 3: No tmux at all — log gracefully ──
-  printf '\033[2m  ℹ tmux not active — view live output: opencode attach %s\033[0m\n' "$url" >&2
 }
 
 open_attach_pane "$OC_URL"
 
 # ─── Send message via HTTP API (background — non-blocking) ──────────────────
-# The tmux window is the live view; result also goes to a notify file for the lead.
+# El split-pane es la vista en vivo; el resultado también va a notify file para el lead.
 
 NOTIFY_FILE="/tmp/oc-notify-${JOB_ID}.md"
 
@@ -172,7 +162,6 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
       fi
       attempt=$((attempt + 1))
       printf '\033[33m⚠ send attempt %d failed — restarting server...\033[0m\n' "$attempt" >&2
-      # Restart server and update tmux window to new URL
       local new_state
       new_state="$(node "$SENDER" ensure-server 2>/dev/null)"
       if [[ -z "$new_state" ]]; then
@@ -181,14 +170,16 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
       fi
       local new_url
       new_url="$(echo "$new_state" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.url)")"
-      # Reopen the tmux attach pane with the new URL if in tmux
-      if [[ -n "${TMUX:-}" ]] && [[ -n "$new_url" ]]; then
-        local win_id
-        win_id="$("$TMUX_BIN" list-windows -F '#{window_index}:#{window_name}' 2>/dev/null | grep ":oc-team" | cut -d: -f1 | head -1)"
-        if [[ -n "$win_id" ]]; then
-          "$TMUX_BIN" respawn-window -t ":${win_id}" "bash '$SCRIPTS_DIR/opencode-splash.sh' '$new_url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null || true
-        else
-          open_attach_pane "$new_url"
+      # Actualizar el pane existente con la nueva URL
+      if [[ -n "$new_url" ]]; then
+        local current_window
+        current_window="$("$TMUX_BIN" display-message -p '#{window_id}' 2>/dev/null)"
+        local pane_id
+        pane_id="$("$TMUX_BIN" list-panes -t "$current_window" -F '#{pane_title}:#{pane_id}' 2>/dev/null \
+          | grep "^oc-team:" | head -1 | cut -d: -f2)" || true
+        if [[ -n "$pane_id" ]]; then
+          "$TMUX_BIN" respawn-pane -t "$pane_id" \
+            "bash '$SCRIPTS_DIR/opencode-splash.sh' '$new_url' '$JOB_ID'; read -p 'Press Enter to close'" 2>/dev/null || true
         fi
       fi
       sleep 1
@@ -208,7 +199,6 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
   }
 
   if send_with_retry; then
-    # Prefer the agent-written report file (contains DONE:<JOB_ID>) over HTTP response
     if [[ -f "$REPORT_FILE" ]] && grep -q "DONE:${JOB_ID}" "$REPORT_FILE" 2>/dev/null; then
       build_notify "$REPORT_FILE" "report"
     else
@@ -217,7 +207,6 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
   else
     printf '\033[33m⚠ HTTP send failed after retries — falling back to runner (no TUI)\033[0m\n' >&2
     node "$RUNNER" "$CMD" "$(cat "$PROMPT_FILE")" > "$OUTFILE" 2>&1
-    # Check for report file even in fallback
     if [[ -f "$REPORT_FILE" ]] && grep -q "DONE:${JOB_ID}" "$REPORT_FILE" 2>/dev/null; then
       build_notify "$REPORT_FILE" "report-fallback"
     else
@@ -227,6 +216,6 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
   rm -f "$PROMPT_FILE" "$OUTFILE"
 ) &
 
-# Print job info immediately so Claude (lead) knows the task is running
+# Imprimir job info inmediatamente para que Claude (lead) sepa que la tarea corre
 printf '{"job":"%s","notify":"%s","report":"%s","url":"%s","session":"%s","status":"running"}\n' \
   "$JOB_ID" "$NOTIFY_FILE" "$REPORT_FILE" "$OC_URL" "$OC_SID"

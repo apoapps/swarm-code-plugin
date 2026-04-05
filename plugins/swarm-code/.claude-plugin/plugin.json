@@ -1,7 +1,7 @@
 {
   "name": "swarm-code",
-  "version": "2.0.2",
-  "description": "Agent swarm adapter — Claude Code leads, OpenCode executes. Bridges both tools so Claude directs analytical work to OpenCode workers, saving 70-80% tokens.",
+  "version": "2.1.0",
+  "description": "Agent teams adapter — Claude Code leads via experimental agent teams, OpenCode executes in tmux split panes. Workers communicate via SendMessage. Saves 70-80% tokens.",
   "author": {
     "name": "Alejandro Apodaca Cordova (apoapps.com)"
   }

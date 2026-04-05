@@ -1,7 +1,7 @@
 {
   "name": "swarm-code",
-  "version": "1.0.0",
-  "description": "Agent swarm adapter for Claude Code + OpenCode — Claude Code leads, OpenCode executes",
+  "version": "2.1.0",
+  "description": "Agent teams adapter for Claude Code + OpenCode — Claude Code leads via experimental agent teams, OpenCode executes in tmux split panes",
   "type": "module",
   "private": true,
   "author": "Alejandro Apodaca Cordova (apoapps.com)",
