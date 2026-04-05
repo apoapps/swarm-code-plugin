@@ -4,126 +4,121 @@ description: Multi-team orchestration — Claude directs via experimental agent 
 user-invocable: true
 experimental:
   - agent-teams
+allowed-tools:
+  - Bash(bash:*)
+  - TeamCreate
+  - Agent
+  - SendMessage
+  - TaskCreate
+  - TaskUpdate
+  - TaskList
 ---
 
 <!-- Made by Alejandro Apodaca Cordova (apoapps.com) -->
-<!-- v2.1.1 -->
+<!-- v2.2.0 -->
 
 # OpenCode Multi-Team Orchestration
 
+**Este skill tiene `allowed-tools` restringido. Solo puedes usar: Bash (bridge), TeamCreate, Agent, SendMessage, TaskCreate/Update/List.**
+
 ---
 
-## ⛔ STOP — ANTES de hacer CUALQUIER COSA, verifica esto
+## PASO 1 — Verificación automática (OBLIGATORIA)
 
-**¿Estás dentro de una sesión tmux?**
+Ejecuta esto PRIMERO, antes de cualquier otra acción:
+
 ```bash
-echo ${TMUX:-"NO TMUX — DETENTE"}
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "verificar entorno"
 ```
-Si no hay `$TMUX` → **NO continúes**. Dile al usuario: "swarm-code requiere tmux. Corre `tmux new -s work` y vuelve a abrir Claude Code."
 
-**¿Tienes agent-teams habilitado?**
-El frontmatter de este skill declara `experimental: [agent-teams]`. Si no está habilitado, las herramientas `TeamCreate` y `SendMessage` no existen → no continúes.
+Si falla con "swarm-code requiere tmux" → detente y dile al usuario:
+> "swarm-code requiere tmux activo. Corre `tmux new -s work` y vuelve a abrir Claude Code dentro de esa sesión."
+
+Si el pane ya se creó en SessionStart → el bridge reutilizará el existente.
 
 ---
 
-## ⛔ PROHIBIDO — No hagas esto
-
-```python
-# ❌ PROHIBIDO — parallel agents sueltos (no agent teams)
-Agent(subagent_type="opencode:opencode-worker", name="w1", prompt="...")
-Agent(subagent_type="opencode:opencode-worker", name="w2", prompt="...")
-# Esto no tiene team, no tiene comunicación entre agentes.
-
-# ❌ PROHIBIDO — Promise.all / batch commands paralelos
-# El bridge nunca se debe llamar en loop concurrente desde bash.
-```
-
----
-
-## ✅ OBLIGATORIO — Haz esto
-
-Al invocar este skill, **LLAMA el bridge inmediatamente**:
+## PASO 2 — Para tareas simples: bridge directo
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<tarea>"
 ```
 
-Si la tarea requiere múltiples workers, **crea un team primero**:
+Lee el notify file del job cuando termina. Listo.
+
+---
+
+## PASO 3 — Para tareas complejas: agent team
 
 ```python
 # 1. Team
-TeamCreate(team_name="oc-team", description="análisis + review")
+TeamCreate(team_name="oc-team", description="<descripción>")
 
-# 2. Workers dentro del team
+# 2. Workers (siempre con team_name)
 Agent(
   subagent_type="swarm-code:opencode-worker",
   name="worker-análisis",
-  team_name="oc-team",   # ← OBLIGATORIO
-  prompt="Analiza src/api/ — reporta via SendMessage al team-lead."
+  team_name="oc-team",
+  prompt="<tarea específica> — reporta resultado via SendMessage al team-lead"
 )
+
 Agent(
   subagent_type="swarm-code:opencode-worker",
   name="worker-review",
-  team_name="oc-team",   # ← OBLIGATORIO
-  prompt="Revisa el último diff — reporta via SendMessage al team-lead."
+  team_name="oc-team",
+  prompt="<otra tarea> — reporta resultado via SendMessage al team-lead"
 )
 ```
 
 ---
 
-## Protocolo de comunicación entre agentes
-
-Los workers **NO retornan batch output** — usan `SendMessage`:
+## Protocolo entre agentes (siempre via SendMessage)
 
 ```
-# Worker → Team lead (cuando termina)
-SendMessage(to: "team-lead", message: "✓ análisis listo\n---\n<resultado>")
+# Worker → team-lead cuando termina
+SendMessage(to: "team-lead", message: "✓ done\n---\n<resultado>")
 
-# Team lead → Worker (tarea adicional)
-SendMessage(to: "worker-análisis", message: "Ahora revisa también src/lib/")
+# team-lead → worker (tarea adicional)
+SendMessage(to: "worker-análisis", message: "<nueva tarea>")
+```
 
-# ACK inmediato del worker
-⚡ oc | revisando src/lib/
+**NO uses Agent sin `team_name`** — el hook PreToolUse lo bloqueará automáticamente.
+
+---
+
+## ⛔ Prohibido en este skill
+
+```
+❌ Bash de análisis pesado (grep -r, rg, find recursivo, pipelines de 3+)
+   → El hook lo bloquea → usa el bridge
+
+❌ Agent sin team_name
+   → El hook lo bloquea → usa TeamCreate primero
+
+❌ Crear ventanas tmux nuevas (new-window)
+   → El bridge ya tiene el pane desde SessionStart
 ```
 
 ---
 
-## El principio
+## Arquitectura
 
 ```
-Claude Sonnet (director)
-  ├── worker-análisis  ──bridge──► tmux split-pane ──SendMessage──► team-lead
-  ├── worker-review    ──bridge──► tmux split-pane ──SendMessage──► team-lead
-  └── worker-plan      ──bridge──► tmux split-pane ──SendMessage──► team-lead
+SessionStart (automático)
+  └─► setup_tmux_pane()  → crea oc-team pane
+  └─► opencode-server    → inicia en background
+
+Claude (director)
+  ├── bridge → oc-team pane (ya existe)
+  ├── worker-1 (team) → bridge → oc-team pane → SendMessage → team-lead
+  └── worker-2 (team) → bridge → oc-team pane → SendMessage → team-lead
 ```
 
-- **Claude** = director. No hace análisis. Sintetiza resultados.
-- **opencode-workers** = análisis barato. Corren en tmux split-panes.
-- **Comunicación** = siempre via SendMessage dentro del team.
+Ahorro estimado: **~80% tokens de Claude** vs análisis directo.
 
 ---
-
-## Cuándo usar cada tipo
-
-| Tarea | Agente | Costo |
-|-------|--------|-------|
-| Code review, análisis de bugs | opencode-worker | ~$0 |
-| Planear implementación | opencode-worker | ~$0 |
-| Preguntas de arquitectura | opencode-worker | ~$0 |
-| Orquestar, sintetizar, decidir | Claude Sonnet | $3/M |
-
----
-
-## Ahorro de tokens estimado
-
-Sin orquestación: 8,000–15,000 tokens por tarea compleja
-Con agent teams: 1,000–2,000 tokens por tarea compleja
-**Ahorro: ~80%**
-
----
-
-## Bridge path
 
 ```bash
+# Bridge path
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<prompt>"
 ```
