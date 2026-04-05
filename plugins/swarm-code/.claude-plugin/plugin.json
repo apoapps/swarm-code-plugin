@@ -1,6 +1,6 @@
 {
   "name": "swarm-code",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Haiku-agent bridge — Claude Code spawns Haiku subagents that run OpenCode via CLI (opencode run). No tmux required. Workers stream colored logs to /tmp/swarm-code-logs/. Saves 70-80% tokens.",
   "author": {
     "name": "Alejandro Apodaca Cordova (apoapps.com)"
