@@ -956,6 +956,161 @@ function agentTag(agent) {
   return `[${agent.name}]`;
 }
 
+// ─── Init (team setup + tmux + versioning) ───────────────────────────
+
+async function handleInit(flags) {
+  // ── Upgrade mode ──
+  if (flags.upgrade) {
+    process.stderr.write(`${C.dim}Upgrading swarm-code...${C.reset}\n`);
+    try {
+      const pullOut = execSync(`git -C "${ROOT_DIR}" pull --ff-only 2>&1`, { encoding: "utf8" }).trim();
+      // Sync to installed plugin location (~/.claude/plugins/marketplaces/swarm-code)
+      const installedDir = path.join(process.env.HOME ?? "/", ".claude", "plugins", "marketplaces", "swarm-code");
+      if (fs.existsSync(installedDir) && installedDir !== ROOT_DIR) {
+        execSync(`rsync -a --delete "${ROOT_DIR}/" "${installedDir}/" --exclude='.git' 2>/dev/null`, { encoding: "utf8" });
+        console.log(ok(`Synced to installed plugin at ${installedDir}`));
+      }
+      console.log(ok(`Upgrade complete: ${pullOut || "already up to date"}`));
+    } catch (e) {
+      console.log(fail(`Upgrade failed: ${e.message}`));
+    }
+    return;
+  }
+
+  // ── Reset mode ──
+  if (flags.reset) {
+    setConfig(CWD, { modelPriority: [], availableModels: [], availableModelsCheckedAt: null });
+    console.log(ok("Configuration reset. Run /swarm-code init to reconfigure."));
+    return;
+  }
+
+  // ── Set primary model (delegated from init wizard) ──
+  if (flags["set-primary"]) {
+    const config = getConfig(CWD);
+    const available = config.availableModels?.length > 0
+      ? config.availableModels
+      : await detectAvailableModels();
+    return handleSetPrimary(flags["set-primary"], { ...config, availableModels: available });
+  }
+
+  // ── Test mode ──
+  if (flags.test) {
+    return handleTest(getConfig(CWD));
+  }
+
+  // ── Version info ──
+  let pluginVersion = "2.0.0";
+  try {
+    const pkgPath = path.join(ROOT_DIR, "..", "..", "..", "package.json");
+    if (fs.existsSync(pkgPath)) {
+      pluginVersion = JSON.parse(fs.readFileSync(pkgPath, "utf8")).version ?? pluginVersion;
+    }
+  } catch { /* ignore */ }
+  let gitHash = "";
+  try {
+    gitHash = execSync(`git -C "${ROOT_DIR}" rev-parse --short HEAD 2>/dev/null`, { encoding: "utf8" }).trim();
+  } catch { /* no git */ }
+
+  // ── Tmux detection + oc-team window ──
+  const inTmux = !!process.env.TMUX;
+  let tmuxLine = dim("not detected");
+  if (inTmux) {
+    try {
+      const windows = execSync("tmux list-windows -F '#{window_name}' 2>/dev/null", { encoding: "utf8" }).trim().split("\n");
+      if (!windows.includes("oc-team")) {
+        execSync("tmux new-window -n 'oc-team' 2>/dev/null", { encoding: "utf8" });
+        tmuxLine = ok("`oc-team` window created");
+      } else {
+        tmuxLine = ok("`oc-team` window ready");
+      }
+    } catch {
+      tmuxLine = warn("tmux detected, window creation failed");
+    }
+  }
+
+  // ── OpenCode check ──
+  const availability = await checkOpenCodeAvailable();
+
+  // ── Models ──
+  const config = getConfig(CWD);
+  let models = config.availableModels ?? [];
+  const cacheAge = config.availableModelsCheckedAt
+    ? Date.now() - Date.parse(config.availableModelsCheckedAt)
+    : Infinity;
+  if (models.length === 0 || cacheAge > 5 * 60 * 1000 || flags.refresh) {
+    process.stderr.write(`${C.dim}Scanning models...${C.reset}\n`);
+    models = await detectAvailableModels();
+    setConfig(CWD, { availableModels: models, availableModelsCheckedAt: new Date().toISOString() });
+  }
+
+  const resolved = resolveModel(config.modelPriority ?? [], models);
+  const grouped = groupModelsByProvider(models);
+  const priority = config.modelPriority ?? [];
+
+  // ── JSON mode ──
+  if (flags.json) {
+    output({
+      version: pluginVersion,
+      gitHash,
+      opencode: availability.available ? `v${availability.version}` : null,
+      activeModel: resolved.model ?? null,
+      fallbackUsed: resolved.fallbackUsed,
+      modelPriority: priority,
+      models: models.length,
+      providers: Object.keys(grouped).length,
+      tmux: inTmux,
+    }, true);
+    return;
+  }
+
+  // ── Dashboard ──
+  console.log("");
+  console.log(box([
+    `${C.cyan}${C.bold}swarm-code${C.reset}  ${C.dim}v${pluginVersion}${gitHash ? ` · ${gitHash}` : ""}${C.reset}`,
+    dim("agent swarm adapter — Claude Code ↔ OpenCode"),
+    "",
+    `  OpenCode   ${availability.available ? ok(`v${availability.version}`) : fail("not found — install: opencode.ai/docs/install")}`,
+    `  Models     ${models.length > 0 ? ok(`${bold(String(models.length))} across ${bold(String(Object.keys(grouped).length))} providers`) : warn("none detected")}`,
+    `  Active     ${resolved.model ? ok(bold(resolved.model)) : warn("not configured")}`,
+    `  tmux       ${tmuxLine}`,
+  ], "swarm-code init"));
+  console.log("");
+
+  // ── First-time setup if no model configured ──
+  if (priority.length === 0 && models.length > 0) {
+    // Show available models so the user can pick their own
+    const grouped2 = groupModelsByProvider(models);
+    const modelLines = [];
+    for (const [provider, ms] of Object.entries(grouped2)) {
+      modelLines.push(`  ${C.bold}${provider}${C.reset}`);
+      for (const m of ms) modelLines.push(`    ${dim(m)}`);
+    }
+    console.log(box([
+      warn("No model configured yet."),
+      "",
+      dim("Available models:"),
+      ...modelLines,
+      "",
+      dim("Set primary:"),
+      dim("  node runner.mjs init --set-primary \"<model>\""),
+    ], "First-time Setup"));
+    console.log("");
+    return;
+  }
+
+  if (priority.length > 0) {
+    console.log(box([
+      dim("Ready. Claude delegates automatically — no slash commands needed."),
+      "",
+      `  ${C.dim}Analysis:${C.reset}    execute "<task>"`,
+      `  ${C.dim}Review:${C.reset}      review`,
+      `  ${C.dim}Plan:${C.reset}        plan "<task>"`,
+      `  ${C.dim}Multi-agent:${C.reset} orchestrate "<task>"`,
+    ], "Team Ready"));
+    console.log("");
+  }
+}
+
 // ─── Main ────────────────────────────────────────────────────────────
 
 // ─── Welcome banner ───────────────────────────────────────────────────
@@ -1042,6 +1197,7 @@ async function main() {
   printWelcome(command, getConfig(CWD));
 
   switch (command) {
+    case "init":        await handleInit(flags); break;
     case "setup":       await handleSetup(flags); break;
     case "execute":     await handleExecute(flags, positional); break;
     case "ask":         await handleAsk(flags, positional); break;
@@ -1053,18 +1209,20 @@ async function main() {
     case "result":      handleResult(flags, positional); break;
     default:
       console.log([
-        "OpenCode Companion — Made by Alejandro Apodaca Cordova (apoapps.com)",
+        "swarm-code — Made by Alejandro Apodaca Cordova (apoapps.com)",
         "",
-        "Usage:",
-        '  opencode-runner.mjs execute     "<task>"             — RECOMMENDED: auto-routes everything',
-        "  opencode-runner.mjs setup       [--json]            — Detect models & configure",
-        '  opencode-runner.mjs ask         "<prompt>"           — Simple question (single agent)',
-        "  opencode-runner.mjs review      [--base <ref>]       — Review git changes",
-        '  opencode-runner.mjs plan        "<prompt>"           — Implementation planning',
-        '  opencode-runner.mjs orchestrate "<complex task>"     — Force multi-agent',
-        "  opencode-runner.mjs models                           — List available models",
-        "  opencode-runner.mjs status      [job-id] [--all]     — Check job status",
-        "  opencode-runner.mjs result      [job-id]             — Get job result",
+        "User command (the only one):",
+        "  opencode-runner.mjs init        [--upgrade] [--reset] [--test]",
+        "",
+        "Internal (Claude uses these — not user-facing):",
+        '  opencode-runner.mjs execute     "<task>"             — auto-routes everything',
+        '  opencode-runner.mjs ask         "<prompt>"           — simple question',
+        "  opencode-runner.mjs review      [--base <ref>]       — review git changes",
+        '  opencode-runner.mjs plan        "<prompt>"           — implementation plan',
+        '  opencode-runner.mjs orchestrate "<complex task>"     — multi-agent',
+        "  opencode-runner.mjs models                           — list models",
+        "  opencode-runner.mjs status      [job-id] [--all]     — job status",
+        "  opencode-runner.mjs result      [job-id]             — job result",
       ].join("\n"));
       process.exit(command ? 1 : 0);
   }

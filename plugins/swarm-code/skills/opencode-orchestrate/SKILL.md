@@ -99,5 +99,5 @@ Con orquestación: Claude solo dirige = 1,000-2,000 tokens por tarea compleja
 ## Bridge path (para copiar)
 
 ```bash
-/Volumes/SandiskSSD/Documents/Local/dev/apoapps/cc-skills/opencode-plugin-cc/plugins/opencode/scripts/opencode-bridge.sh
+${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh
 ```

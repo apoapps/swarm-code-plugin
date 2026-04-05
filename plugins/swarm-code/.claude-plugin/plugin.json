@@ -1,6 +1,6 @@
 {
   "name": "swarm-code",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Agent swarm adapter — Claude Code leads, OpenCode executes. Bridges both tools so Claude directs analytical work to OpenCode workers, saving 70-80% tokens.",
   "author": {
     "name": "Alejandro Apodaca Cordova (apoapps.com)"

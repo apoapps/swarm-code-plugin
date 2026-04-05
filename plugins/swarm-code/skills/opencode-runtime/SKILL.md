@@ -15,7 +15,7 @@ user-invocable: false
 Solo necesitas el prompt. Todo lo demás es automático:
 
 ```bash
-bash "/Volumes/SandiskSSD/Documents/Local/dev/apoapps/cc-skills/opencode-plugin-cc/plugins/opencode/scripts/opencode-bridge.sh" "<prompt>"
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-bridge.sh" "<prompt>"
 ```
 
 ## Qué hace el bridge automáticamente
@@ -41,7 +41,7 @@ bash opencode-bridge.sh --type ask    "<prompt>"
 Para mantener contexto entre mensajes:
 
 ```bash
-CHAT="/Volumes/SandiskSSD/Documents/Local/dev/apoapps/cc-skills/opencode-plugin-cc/plugins/opencode/scripts/opencode-chat.sh"
+CHAT="${CLAUDE_PLUGIN_ROOT}/scripts/opencode-chat.sh"
 
 SID=$(bash "$CHAT" new)
 bash "$CHAT" send "$SID" "primer mensaje"

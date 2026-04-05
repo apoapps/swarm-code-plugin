@@ -1,5 +1,5 @@
 {
-  "description": "swarm-code hooks — SessionStart context + PostToolUse session capture",
+  "description": "swarm-code hooks — SessionStart context injection + PreToolUse delegation interceptor",
   "hooks": {
     "SessionStart": [
       {
@@ -8,6 +8,18 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/task-type.mjs\" SessionStart",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-tool-use.mjs\"",
+            "timeout": 3
           }
         ]
       }

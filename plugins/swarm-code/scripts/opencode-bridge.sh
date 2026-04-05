@@ -136,7 +136,39 @@ printf '\033[2m⚡ opencode [%s] → %s\033[0m\n' "$CMD" "$OC_URL" >&2
 printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
 
 (
-  if node "$SENDER" send "$PROMPT_FILE" > "$OUTFILE" 2>&1; then
+  send_with_retry() {
+    local attempt=0
+    while [[ $attempt -lt 3 ]]; do
+      if node "$SENDER" send "$PROMPT_FILE" > "$OUTFILE" 2>&1; then
+        return 0
+      fi
+      attempt=$((attempt + 1))
+      printf '\033[33m⚠ send attempt %d failed — restarting server...\033[0m\n' "$attempt" >&2
+      # Restart server and update tmux window to new URL
+      local new_state
+      new_state="$(node "$SENDER" ensure-server 2>/dev/null)"
+      if [[ -z "$new_state" ]]; then
+        printf '\033[31m✗ server restart failed\033[0m\n' >&2
+        break
+      fi
+      local new_url
+      new_url="$(echo "$new_state" | node -e "const s=JSON.parse(require('fs').readFileSync('/dev/stdin','utf8')); process.stdout.write(s.url)")"
+      # Reopen the tmux attach pane with the new URL if in tmux
+      if [[ -n "${TMUX:-}" ]] && [[ -n "$new_url" ]]; then
+        local win_id
+        win_id="$("$TMUX_BIN" list-windows -F '#{window_index}:#{window_name}' 2>/dev/null | grep ":oc-team" | cut -d: -f1 | head -1)"
+        if [[ -n "$win_id" ]]; then
+          "$TMUX_BIN" respawn-window -t ":${win_id}" "opencode attach '$new_url'; read -p 'Press Enter to close'" 2>/dev/null || true
+        else
+          open_attach_pane "$new_url"
+        fi
+      fi
+      sleep 1
+    done
+    return 1
+  }
+
+  if send_with_retry; then
     {
       printf '## oc-team result [job:%s]\n\n' "$JOB_ID"
       cat "$OUTFILE"
@@ -144,9 +176,10 @@ printf '\033[2m  Result will be written to: %s\033[0m\n' "$NOTIFY_FILE" >&2
     } > "$NOTIFY_FILE"
     printf '\033[32m  ✓ oc-team done → %s\033[0m\n' "$NOTIFY_FILE" >&2
   else
-    printf '\033[33m⚠ HTTP send failed — falling back to runner\033[0m\n' >&2
+    printf '\033[33m⚠ HTTP send failed after retries — falling back to runner (no TUI)\033[0m\n' >&2
     node "$RUNNER" "$CMD" "$(cat "$PROMPT_FILE")" > "$OUTFILE" 2>&1
     cat "$OUTFILE" > "$NOTIFY_FILE"
+    printf '\033[33m  ✓ runner fallback done → %s\033[0m\n' "$NOTIFY_FILE" >&2
   fi
   rm -f "$PROMPT_FILE" "$OUTFILE"
 ) &
