@@ -1,6 +1,6 @@
 ---
 name: opencode-runtime
-description: Internal helper contract for calling the opencode-runner from Claude Code subagents
+description: Internal helper contract for calling opencode-bridge from Claude Code subagents
 user-invocable: false
 ---
 
@@ -8,34 +8,58 @@ user-invocable: false
 
 # OpenCode Runtime
 
-Use this skill only inside the `opencode:opencode-worker` subagent.
+Úsalo solo dentro del subagente `opencode:opencode-worker`.
 
-Primary helpers:
+## Interfaz mínima
 
-- **Ask**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" ask "<prompt>"`
-- **Review**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" review [--base <ref>]`
-- **Plan**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" plan "<prompt>"`
-- **Setup**: `node "${CLAUDE_PLUGIN_ROOT}/scripts/opencode-runner.mjs" setup --json`
+Solo necesitas el prompt. Todo lo demás es automático:
 
-Execution rules:
+```bash
+bash "/Volumes/SandiskSSD/Documents/Local/dev/apoapps/cc-skills/opencode-plugin-cc/plugins/opencode/scripts/opencode-bridge.sh" "<prompt>"
+```
 
-- The worker subagent is a forwarder, not an orchestrator. Its only job is to invoke one command and return stdout unchanged.
-- Prefer the helper script over hand-rolled `opencode exec` strings or any other Bash activity.
-- Do not call `status`, `result`, or `setup` from the worker subagent.
-- Do not inspect the repository, read files, grep, monitor progress, or do follow-up work.
-- Return the stdout of the command exactly as-is.
-- If the Bash call fails or OpenCode cannot be invoked, return nothing.
+## Qué hace el bridge automáticamente
 
-Model control:
+| Paso | Qué hace | Cómo |
+|------|----------|------|
+| **Tipo de tarea** | Detecta ask / review / plan | Hook `task-type.mjs` — analiza keywords del prompt |
+| **Modelo** | Elige según config del proyecto | `opencode-runner.mjs` — lee modelPriority, fallback dinámico |
+| **Visibilidad** | Abre ventana tmux `oc:<tipo>` | tmux new-window con output pipe + tee |
+| **Espera** | Polling por sentinel en output file | Loop de 1s, timeout 5min |
+| **Output** | Stdout limpio sin metadatos internos | grep -v sentinel |
 
-- Models are auto-detected and configured via `/opencode:setup`. The runner uses the configured priority list with automatic fallback.
-- Add `--model <model>` only when the user explicitly requests a specific model.
-- The runner script handles fallback to the next available model automatically.
+## Override de tipo (solo si es necesario)
 
-Command selection:
+```bash
+bash opencode-bridge.sh --type review "<prompt>"
+bash opencode-bridge.sh --type plan   "<prompt>"
+bash opencode-bridge.sh --type ask    "<prompt>"
+```
 
-- Use exactly one invocation per handoff.
-- `ask` for general questions, explanations, debugging help.
-- `review` for code review of git changes.
-- `plan` for architecture and implementation planning.
-- Choose the command that best matches the user's intent.
+## Chat multi-turno
+
+Para mantener contexto entre mensajes:
+
+```bash
+CHAT="/Volumes/SandiskSSD/Documents/Local/dev/apoapps/cc-skills/opencode-plugin-cc/plugins/opencode/scripts/opencode-chat.sh"
+
+SID=$(bash "$CHAT" new)
+bash "$CHAT" send "$SID" "primer mensaje"
+bash "$CHAT" send "$SID" "siguiente mensaje con contexto del anterior"
+bash "$CHAT" history "$SID"
+```
+
+## Setup del modelo (una vez por proyecto)
+
+```bash
+node opencode-runner.mjs setup
+```
+
+Detecta todos los modelos disponibles en tu instalación de OpenCode y guarda la priority list. No tiene modelos hardcodeados — usa lo que tengas.
+
+## No hacer desde el worker
+
+- No leer archivos (usa Read/Grep en el agente principal)
+- No escribir archivos
+- No llamar `status`, `result`, ni `setup` desde el worker
+- No pasar `--model` al bridge (el runner lo maneja)

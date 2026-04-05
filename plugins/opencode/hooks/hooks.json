@@ -2,29 +2,32 @@
   "version": "1.0",
   "hooks": [
     {
-      "id": "pre-execution",
-      "name": "Pre-Execution Auto-Routing",
-      "lifecycle": "SessionStart",
-      "file": "./pre-execution.mjs",
-      "enabled": false,
-      "description": "Analyzes Claude's message and auto-routes to OpenCode if delegation score >= threshold",
-      "config": {
-        "enableAutoRouting": false,
-        "delegationScoreThreshold": 70
-      }
-    },
-    {
       "id": "implicit-command",
       "name": "Implicit Command Detection",
       "lifecycle": "SessionStart",
       "file": "./implicit-command.mjs",
-      "enabled": false,
-      "description": "Converts natural language phrases to /opencode:command (e.g., 'Analiza esto' → /opencode:ask)",
-      "examples": [
-        "Revisa estos cambios → /opencode:review",
-        "Cómo implementar auth? → /opencode:ask",
-        "Plan para optimizar rendimiento → /opencode:plan"
-      ]
+      "enabled": true,
+      "description": "Convierte frases naturales en comandos /opencode:* (e.g., 'Revisa esto' → /opencode:review)"
+    },
+    {
+      "id": "pre-execution",
+      "name": "Pre-Execution Auto-Routing",
+      "lifecycle": "SessionStart",
+      "file": "./pre-execution.mjs",
+      "enabled": true,
+      "description": "Auto-detecta si el prompt debe delegarse a OpenCode. Usa el SmartRouter dinámico.",
+      "config": {
+        "enableAutoRouting": true,
+        "delegationScoreThreshold": 65
+      }
+    },
+    {
+      "id": "task-type",
+      "name": "Task Type Detector",
+      "lifecycle": "PreExecution",
+      "file": "./task-type.mjs",
+      "enabled": true,
+      "description": "Clasifica el prompt como ask/review/plan antes de enviarlo al bridge. Permite que el bridge reciba solo el prompt sin flags."
     },
     {
       "id": "session-formatter",
@@ -32,19 +35,25 @@
       "lifecycle": "ResponseComplete",
       "file": "../scripts/session-hook.mjs",
       "enabled": true,
-      "description": "Formats OpenCode response with colored headers, model info, and token counts"
+      "description": "Formatea la respuesta de OpenCode con headers de color, modelo usado y conteo de tokens"
     }
   ],
   "ordering": [
     "implicit-command",
     "pre-execution",
+    "task-type",
     "session-formatter"
   ],
   "config": {
     "routing": {
-      "enableAutoRouting": false,
-      "delegationScoreThreshold": 70,
-      "budget": "medium"
+      "enableAutoRouting": true,
+      "delegationScoreThreshold": 65,
+      "budget": "auto"
+    },
+    "taskType": {
+      "autoDetect": true,
+      "reviewKeywords": ["git diff", "code review", "revisa", "review", "cambios", "pull request", "pr", "staged"],
+      "planKeywords": ["plan", "architect", "diseña", "implementa", "roadmap", "pasos para", "scaffold", "estructura de"]
     },
     "ui": {
       "colors": true,
