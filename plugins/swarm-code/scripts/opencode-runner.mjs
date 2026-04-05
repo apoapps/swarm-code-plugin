@@ -1022,17 +1022,24 @@ async function handleInit(flags) {
       const panes = execSync(`tmux list-panes ${paneTarget} -F '#{pane_title}' 2>/dev/null`, { encoding: "utf8" }).trim().split("\n");
       if (!panes.includes("oc-team")) {
         const stateDir = path.join(CWD, ".opencode", "state");
-        const watchCmd = fs.existsSync(stateDir)
-          ? `tail -f "${stateDir}"/*.log 2>/dev/null`
-          : `echo '  swarm-code oc-team — waiting for jobs...'; sleep 86400`;
-        const paneCmd = [
-          `printf '\\033[1;36m  swarm-code · oc-team\\033[0m\\n\\n'`,
-          watchCmd,
-        ].join("; ");
-        // Split within Claude Code's exact window using its pane ID
+        // Split within Claude Code's exact window, capture new pane ID
         const splitTarget = ccPane ? `-t ${ccPane}` : "";
-        execSync(`tmux split-window -h -d ${splitTarget} "bash -c '${paneCmd.replace(/'/g, `'"'"'`)}'" 2>/dev/null`, { encoding: "utf8" });
-        execSync(`tmux select-pane -T 'oc-team' -t '{right}' 2>/dev/null`, { encoding: "utf8" });
+        const newPaneId = execSync(
+          `tmux split-window -h -d ${splitTarget} -P -F '#{pane_id}' bash 2>/dev/null`,
+          { encoding: "utf8" }
+        ).trim();
+        if (newPaneId) {
+          // Set pane title for future detection
+          execSync(`tmux select-pane -T 'oc-team' -t '${newPaneId}' 2>/dev/null`, { encoding: "utf8" });
+          // Send welcome header
+          execSync(`tmux send-keys -t '${newPaneId}' "clear" Enter 2>/dev/null`, { encoding: "utf8" });
+          execSync(`tmux send-keys -t '${newPaneId}' "printf '\\\\033[1;36m  swarm-code · oc-team\\\\033[0m\\\\n'" Enter 2>/dev/null`, { encoding: "utf8" });
+          if (fs.existsSync(stateDir)) {
+            execSync(`tmux send-keys -t '${newPaneId}' "tail -f ${stateDir}/*.log 2>/dev/null || sleep 86400" Enter 2>/dev/null`, { encoding: "utf8" });
+          } else {
+            execSync(`tmux send-keys -t '${newPaneId}' "echo '  Waiting for swarm jobs...'; sleep 86400" Enter 2>/dev/null`, { encoding: "utf8" });
+          }
+        }
         tmuxLine = ok("`oc-team` split pane created");
       } else {
         tmuxLine = ok("`oc-team` split pane ready");
