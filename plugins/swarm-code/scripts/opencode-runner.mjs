@@ -878,20 +878,7 @@ async function handleExecute(flags, positional) {
     model = _priority[0] ?? "minimax/MiniMax-M2.7";
   }
 
-  // ── Auto-open tmux status pane if available ──
-  if (process.env.TMUX) {
-    try {
-      const tmux = execSync("command -v tmux", { encoding: "utf8" }).trim();
-      const panes = execSync(`${tmux} list-panes -F '#{pane_current_command}' 2>/dev/null`, { encoding: "utf8" });
-      if (!panes.includes("tail") && !panes.includes("opencode")) {
-        const stateDir = path.join(CWD, ".opencode", "state");
-        const logTarget = fs.existsSync(stateDir)
-          ? `${stateDir}/*.log`
-          : "/tmp/oc-server.log";
-        execSync(`${tmux} split-window -v -l 25% "tail -f ${logTarget} 2>/dev/null || echo 'Waiting for swarm-code output...'; sleep 3600" 2>/dev/null`, { encoding: "utf8" });
-      }
-    } catch { /* tmux not available or split failed — continue silently */ }
-  }
+  // ── oc-team pane is managed by init — no auto-split here ──
 
   // ── Execute single agent ──
   const { pickOne, agentTag: colorTag } = await import("./lib/names.mjs");
@@ -1021,24 +1008,16 @@ async function handleInit(flags) {
       const paneTarget = ccPane ? `-t ${ccPane}` : "";
       const panes = execSync(`tmux list-panes ${paneTarget} -F '#{pane_title}' 2>/dev/null`, { encoding: "utf8" }).trim().split("\n");
       if (!panes.includes("oc-team")) {
-        const stateDir = path.join(CWD, ".opencode", "state");
-        // Split within Claude Code's exact window, capture new pane ID
         const splitTarget = ccPane ? `-t ${ccPane}` : "";
+        // Run splash script directly — shows logo then exec opencode TUI
+        const splashScript = new URL("./opencode-splash.sh", import.meta.url).pathname;
+        const splashCmd = fs.existsSync(splashScript) ? `bash "${splashScript}"` : `bash --login`;
         const newPaneId = execSync(
-          `tmux split-window -h -d ${splitTarget} -P -F '#{pane_id}' bash 2>/dev/null`,
+          `tmux split-window -h -d ${splitTarget} -P -F '#{pane_id}' ${splashCmd} 2>/dev/null`,
           { encoding: "utf8" }
         ).trim();
         if (newPaneId) {
-          // Set pane title for future detection
           execSync(`tmux select-pane -T 'oc-team' -t '${newPaneId}' 2>/dev/null`, { encoding: "utf8" });
-          // Send welcome header
-          execSync(`tmux send-keys -t '${newPaneId}' "clear" Enter 2>/dev/null`, { encoding: "utf8" });
-          execSync(`tmux send-keys -t '${newPaneId}' "printf '\\\\033[1;36m  swarm-code · oc-team\\\\033[0m\\\\n'" Enter 2>/dev/null`, { encoding: "utf8" });
-          if (fs.existsSync(stateDir)) {
-            execSync(`tmux send-keys -t '${newPaneId}' "tail -f ${stateDir}/*.log 2>/dev/null || sleep 86400" Enter 2>/dev/null`, { encoding: "utf8" });
-          } else {
-            execSync(`tmux send-keys -t '${newPaneId}' "echo '  Waiting for swarm jobs...'; sleep 86400" Enter 2>/dev/null`, { encoding: "utf8" });
-          }
         }
         tmuxLine = ok("`oc-team` split pane created");
       } else {
