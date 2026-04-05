@@ -10,7 +10,7 @@ RESET='\033[0m'
 GRAY='\033[38;5;240m'
 YELLOW='\033[38;5;221m'
 
-SHARED_LOG="${CLAUDE_PLUGIN_DATA:-/tmp}/swarm-code-logs/oc-team.log"
+SHARED_LOG="/tmp/swarm-code-logs/oc-team.log"
 mkdir -p "$(dirname "$SHARED_LOG")"
 touch "$SHARED_LOG"
 

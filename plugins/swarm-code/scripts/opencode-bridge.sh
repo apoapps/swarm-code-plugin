@@ -114,7 +114,7 @@ OC_SID="$(echo "$SERVER_STATE" | node -e "const s=JSON.parse(require('fs').readF
 
 # ─── oc-team shared log + pane management ─────────────────────────────────────
 
-SHARED_LOG="${CLAUDE_PLUGIN_DATA:-/tmp}/swarm-code-logs/oc-team.log"
+SHARED_LOG="/tmp/swarm-code-logs/oc-team.log"
 mkdir -p "$(dirname "$SHARED_LOG")"
 
 TS() { date '+%H:%M:%S'; }

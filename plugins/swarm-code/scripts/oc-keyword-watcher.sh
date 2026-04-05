@@ -7,7 +7,7 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMUX_BIN="$(command -v tmux 2>/dev/null || echo tmux)"
 CC_PANE="${1:-}"  # Claude Code's TMUX_PANE id
 
-SHARED_LOG="${CLAUDE_PLUGIN_DATA:-/tmp}/swarm-code-logs/oc-team.log"
+SHARED_LOG="/tmp/swarm-code-logs/oc-team.log"
 mkdir -p "$(dirname "$SHARED_LOG")"
 
 log() { printf '%s\n' "$1" >> "$SHARED_LOG"; }
